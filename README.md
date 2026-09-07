@@ -236,7 +236,6 @@ crates/pyxray-render   Report → themed ratatui buffer → ANSI / text / HTML /
 crates/pyx-cli         the `pyx` binary and the interactive viewer
 crates/pyxray-py       pyo3 bindings
 python/pyxray          the Python package, the interceptor and the hook
-attic/                 the first sketch of this, kept for reference
 ```
 
 `pyxray-core` has no idea how anything is drawn, and `pyxray-render` has no
