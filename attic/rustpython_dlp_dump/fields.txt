@@ -1,0 +1,357 @@
+STRUCT ModModule
+   range : OptionalRange<R>
+   body : Vec<Stmt<R>>
+   type_ignores : Vec<TypeIgnore<R>>
+STRUCT ModInteractive
+   range : OptionalRange<R>
+   body : Vec<Stmt<R>>
+STRUCT ModExpression
+   range : OptionalRange<R>
+   body : Box<Expr<R>>
+STRUCT ModFunctionType
+   range : OptionalRange<R>
+   argtypes : Vec<Expr<R>>
+   returns : Box<Expr<R>>
+STRUCT StmtFunctionDef
+   range : R
+   name : Identifier
+   args : Box<Arguments<R>>
+   body : Vec<Stmt<R>>
+   decorator_list : Vec<Expr<R>>
+   returns : Option<Box<Expr<R>>>
+   type_comment : Option<String>
+   type_params : Vec<TypeParam<R>>
+STRUCT StmtAsyncFunctionDef
+   range : R
+   name : Identifier
+   args : Box<Arguments<R>>
+   body : Vec<Stmt<R>>
+   decorator_list : Vec<Expr<R>>
+   returns : Option<Box<Expr<R>>>
+   type_comment : Option<String>
+   type_params : Vec<TypeParam<R>>
+STRUCT StmtClassDef
+   range : R
+   name : Identifier
+   bases : Vec<Expr<R>>
+   keywords : Vec<Keyword<R>>
+   body : Vec<Stmt<R>>
+   decorator_list : Vec<Expr<R>>
+   type_params : Vec<TypeParam<R>>
+STRUCT StmtReturn
+   range : R
+   value : Option<Box<Expr<R>>>
+STRUCT StmtDelete
+   range : R
+   targets : Vec<Expr<R>>
+STRUCT StmtAssign
+   range : R
+   targets : Vec<Expr<R>>
+   value : Box<Expr<R>>
+   type_comment : Option<String>
+STRUCT StmtTypeAlias
+   range : R
+   name : Box<Expr<R>>
+   type_params : Vec<TypeParam<R>>
+   value : Box<Expr<R>>
+STRUCT StmtAugAssign
+   range : R
+   target : Box<Expr<R>>
+   op : Operator
+   value : Box<Expr<R>>
+STRUCT StmtAnnAssign
+   range : R
+   target : Box<Expr<R>>
+   annotation : Box<Expr<R>>
+   value : Option<Box<Expr<R>>>
+   simple : bool
+STRUCT StmtFor
+   range : R
+   target : Box<Expr<R>>
+   iter : Box<Expr<R>>
+   body : Vec<Stmt<R>>
+   orelse : Vec<Stmt<R>>
+   type_comment : Option<String>
+STRUCT StmtAsyncFor
+   range : R
+   target : Box<Expr<R>>
+   iter : Box<Expr<R>>
+   body : Vec<Stmt<R>>
+   orelse : Vec<Stmt<R>>
+   type_comment : Option<String>
+STRUCT StmtWhile
+   range : R
+   test : Box<Expr<R>>
+   body : Vec<Stmt<R>>
+   orelse : Vec<Stmt<R>>
+STRUCT StmtIf
+   range : R
+   test : Box<Expr<R>>
+   body : Vec<Stmt<R>>
+   orelse : Vec<Stmt<R>>
+STRUCT StmtWith
+   range : R
+   items : Vec<WithItem<R>>
+   body : Vec<Stmt<R>>
+   type_comment : Option<String>
+STRUCT StmtAsyncWith
+   range : R
+   items : Vec<WithItem<R>>
+   body : Vec<Stmt<R>>
+   type_comment : Option<String>
+STRUCT StmtMatch
+   range : R
+   subject : Box<Expr<R>>
+   cases : Vec<MatchCase<R>>
+STRUCT StmtRaise
+   range : R
+   exc : Option<Box<Expr<R>>>
+   cause : Option<Box<Expr<R>>>
+STRUCT StmtTry
+   range : R
+   body : Vec<Stmt<R>>
+   handlers : Vec<ExceptHandler<R>>
+   orelse : Vec<Stmt<R>>
+   finalbody : Vec<Stmt<R>>
+STRUCT StmtTryStar
+   range : R
+   body : Vec<Stmt<R>>
+   handlers : Vec<ExceptHandler<R>>
+   orelse : Vec<Stmt<R>>
+   finalbody : Vec<Stmt<R>>
+STRUCT StmtAssert
+   range : R
+   test : Box<Expr<R>>
+   msg : Option<Box<Expr<R>>>
+STRUCT StmtImport
+   range : R
+   names : Vec<Alias<R>>
+STRUCT StmtImportFrom
+   range : R
+   module : Option<Identifier>
+   names : Vec<Alias<R>>
+   level : Option<Int>
+STRUCT StmtGlobal
+   range : R
+   names : Vec<Identifier>
+STRUCT StmtNonlocal
+   range : R
+   names : Vec<Identifier>
+STRUCT StmtExpr
+   range : R
+   value : Box<Expr<R>>
+STRUCT StmtPass
+   range : R
+STRUCT StmtBreak
+   range : R
+STRUCT StmtContinue
+   range : R
+STRUCT ExprBoolOp
+   range : R
+   op : BoolOp
+   values : Vec<Expr<R>>
+STRUCT ExprNamedExpr
+   range : R
+   target : Box<Expr<R>>
+   value : Box<Expr<R>>
+STRUCT ExprBinOp
+   range : R
+   left : Box<Expr<R>>
+   op : Operator
+   right : Box<Expr<R>>
+STRUCT ExprUnaryOp
+   range : R
+   op : UnaryOp
+   operand : Box<Expr<R>>
+STRUCT ExprLambda
+   range : R
+   args : Box<Arguments<R>>
+   body : Box<Expr<R>>
+STRUCT ExprIfExp
+   range : R
+   test : Box<Expr<R>>
+   body : Box<Expr<R>>
+   orelse : Box<Expr<R>>
+STRUCT ExprDict
+   range : R
+   keys : Vec<Option<Expr<R>>>
+   values : Vec<Expr<R>>
+STRUCT ExprSet
+   range : R
+   elts : Vec<Expr<R>>
+STRUCT ExprListComp
+   range : R
+   elt : Box<Expr<R>>
+   generators : Vec<Comprehension<R>>
+STRUCT ExprSetComp
+   range : R
+   elt : Box<Expr<R>>
+   generators : Vec<Comprehension<R>>
+STRUCT ExprDictComp
+   range : R
+   key : Box<Expr<R>>
+   value : Box<Expr<R>>
+   generators : Vec<Comprehension<R>>
+STRUCT ExprGeneratorExp
+   range : R
+   elt : Box<Expr<R>>
+   generators : Vec<Comprehension<R>>
+STRUCT ExprAwait
+   range : R
+   value : Box<Expr<R>>
+STRUCT ExprYield
+   range : R
+   value : Option<Box<Expr<R>>>
+STRUCT ExprYieldFrom
+   range : R
+   value : Box<Expr<R>>
+STRUCT ExprCompare
+   range : R
+   left : Box<Expr<R>>
+   ops : Vec<CmpOp>
+   comparators : Vec<Expr<R>>
+STRUCT ExprCall
+   range : R
+   func : Box<Expr<R>>
+   args : Vec<Expr<R>>
+   keywords : Vec<Keyword<R>>
+STRUCT ExprFormattedValue
+   range : R
+   value : Box<Expr<R>>
+   conversion : ConversionFlag
+   format_spec : Option<Box<Expr<R>>>
+STRUCT ExprJoinedStr
+   range : R
+   values : Vec<Expr<R>>
+STRUCT ExprConstant
+   range : R
+   value : Constant
+   kind : Option<String>
+STRUCT ExprAttribute
+   range : R
+   value : Box<Expr<R>>
+   attr : Identifier
+   ctx : ExprContext
+STRUCT ExprSubscript
+   range : R
+   value : Box<Expr<R>>
+   slice : Box<Expr<R>>
+   ctx : ExprContext
+STRUCT ExprStarred
+   range : R
+   value : Box<Expr<R>>
+   ctx : ExprContext
+STRUCT ExprName
+   range : R
+   id : Identifier
+   ctx : ExprContext
+STRUCT ExprList
+   range : R
+   elts : Vec<Expr<R>>
+   ctx : ExprContext
+STRUCT ExprTuple
+   range : R
+   elts : Vec<Expr<R>>
+   ctx : ExprContext
+STRUCT ExprSlice
+   range : R
+   lower : Option<Box<Expr<R>>>
+   upper : Option<Box<Expr<R>>>
+   step : Option<Box<Expr<R>>>
+STRUCT Comprehension
+   range : OptionalRange<R>
+   target : Expr<R>
+   iter : Expr<R>
+   ifs : Vec<Expr<R>>
+   is_async : bool
+STRUCT ExceptHandlerExceptHandler
+   range : R
+   type_ : Option<Box<Expr<R>>>
+   name : Option<Identifier>
+   body : Vec<Stmt<R>>
+STRUCT PythonArguments
+   range : OptionalRange<R>
+   posonlyargs : Vec<Arg<R>>
+   args : Vec<Arg<R>>
+   vararg : Option<Box<Arg<R>>>
+   kwonlyargs : Vec<Arg<R>>
+   kw_defaults : Vec<Expr<R>>
+   kwarg : Option<Box<Arg<R>>>
+   defaults : Vec<Expr<R>>
+STRUCT Arg
+   range : R
+   arg : Identifier
+   annotation : Option<Box<Expr<R>>>
+   type_comment : Option<String>
+STRUCT Keyword
+   range : R
+   arg : Option<Identifier>
+   value : Expr<R>
+STRUCT Alias
+   range : R
+   name : Identifier
+   asname : Option<Identifier>
+STRUCT WithItem
+   range : OptionalRange<R>
+   context_expr : Expr<R>
+   optional_vars : Option<Box<Expr<R>>>
+STRUCT MatchCase
+   range : OptionalRange<R>
+   pattern : Pattern<R>
+   guard : Option<Box<Expr<R>>>
+   body : Vec<Stmt<R>>
+STRUCT PatternMatchValue
+   range : R
+   value : Box<Expr<R>>
+STRUCT PatternMatchSingleton
+   range : R
+   value : Constant
+STRUCT PatternMatchSequence
+   range : R
+   patterns : Vec<Pattern<R>>
+STRUCT PatternMatchMapping
+   range : R
+   keys : Vec<Expr<R>>
+   patterns : Vec<Pattern<R>>
+   rest : Option<Identifier>
+STRUCT PatternMatchClass
+   range : R
+   cls : Box<Expr<R>>
+   patterns : Vec<Pattern<R>>
+   kwd_attrs : Vec<Identifier>
+   kwd_patterns : Vec<Pattern<R>>
+STRUCT PatternMatchStar
+   range : R
+   name : Option<Identifier>
+STRUCT PatternMatchAs
+   range : R
+   pattern : Option<Box<Pattern<R>>>
+   name : Option<Identifier>
+STRUCT PatternMatchOr
+   range : R
+   patterns : Vec<Pattern<R>>
+STRUCT TypeIgnoreTypeIgnore
+   range : OptionalRange<R>
+   lineno : Int
+   tag : String
+STRUCT TypeParamTypeVar
+   range : R
+   name : Identifier
+   bound : Option<Box<Expr<R>>>
+STRUCT TypeParamParamSpec
+   range : R
+   name : Identifier
+STRUCT TypeParamTypeVarTuple
+   range : R
+   name : Identifier
+STRUCT Arguments
+   range : OptionalRange<R>
+   posonlyargs : Vec<ArgWithDefault<R>>
+   args : Vec<ArgWithDefault<R>>
+   vararg : Option<Box<Arg<R>>>
+   kwonlyargs : Vec<ArgWithDefault<R>>
+   kwarg : Option<Box<Arg<R>>>
+STRUCT ArgWithDefault
+   range : OptionalRange<R>
+   def : Arg<R>
+   default : Option<Box<Expr<R>>>

@@ -1,0 +1,14 @@
+[package]
+name = "pyxray-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Parse a Python snippet and derive a structural / effect X-ray of what it does"
+
+[dependencies]
+ruff_python_parser.workspace = true
+ruff_python_ast.workspace = true
+ruff_text_size.workspace = true
+ruff_source_file.workspace = true
+serde.workspace = true
+serde_json.workspace = true

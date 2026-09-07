@@ -1,0 +1,9 @@
+[package]
+name = "py-ast-viewer"
+version = "0.1.0"
+edition = "2021"
+description = "Parse Python source into a RustPython AST and render it as a navigable, colorized tree"
+
+[dependencies]
+rustpython-ast = { version = "0.4.0", features = ["visitor", "location", "all-nodes-with-ranges"] }
+rustpython-parser = "0.4.0"

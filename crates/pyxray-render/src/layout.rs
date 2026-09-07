@@ -1,0 +1,275 @@
+//! Layouts. A layout is planned before it is drawn — `plan` returns the exact
+//! rectangle every panel will occupy — so measuring for a static export and
+//! fitting into a live terminal are the same code path and can never drift.
+
+use pyxray_core::model::Report;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+
+use crate::canvas::{self, frame_overhead};
+use crate::panels::{Opts, Panel};
+use crate::theme::Theme;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Layout {
+    /// A glance: what it does, how risky, and the effect timeline. Sized for a
+    /// terminal notification, not a session.
+    Card,
+    /// Two columns: the structure on the left, everything else on the right.
+    Dashboard,
+    /// One column, everything, in reading order. Narrow-terminal safe.
+    Stack,
+    /// The structural outline given almost all the room.
+    Flow,
+}
+
+impl Layout {
+    pub fn id(self) -> &'static str {
+        match self {
+            Layout::Card => "card",
+            Layout::Dashboard => "dashboard",
+            Layout::Stack => "stack",
+            Layout::Flow => "flow",
+        }
+    }
+
+    pub fn blurb(self) -> &'static str {
+        match self {
+            Layout::Card => "A glance: synopsis, risk, capabilities, effect timeline.",
+            Layout::Dashboard => "Two columns: structure on the left, findings on the right.",
+            Layout::Stack => "One column, everything, in reading order.",
+            Layout::Flow => "The outline, given the room to breathe.",
+        }
+    }
+
+    pub fn all() -> [Layout; 4] {
+        [Layout::Card, Layout::Dashboard, Layout::Stack, Layout::Flow]
+    }
+}
+
+pub fn layout(id: &str) -> Option<Layout> {
+    Layout::all().into_iter().find(|l| l.id() == id)
+}
+
+#[derive(Clone, Debug)]
+pub struct Plan {
+    /// Panel, its outer rectangle (including frame), and its title.
+    pub items: Vec<(Panel, Rect)>,
+    pub width: u16,
+    pub height: u16,
+}
+
+/// Vertical panel stacker for one column.
+struct Column<'a> {
+    x: u16,
+    width: u16,
+    y: u16,
+    /// Row after which nothing more fits, when bounded.
+    limit: Option<u16>,
+    theme: &'a Theme,
+    items: Vec<(Panel, Rect)>,
+}
+
+impl<'a> Column<'a> {
+    fn new(x: u16, y: u16, width: u16, limit: Option<u16>, theme: &'a Theme) -> Self {
+        Column {
+            x,
+            width,
+            y,
+            limit,
+            theme,
+            items: Vec::new(),
+        }
+    }
+
+    fn room(&self) -> u16 {
+        match self.limit {
+            Some(bottom) => bottom.saturating_sub(self.y),
+            None => u16::MAX,
+        }
+    }
+
+    /// Place a panel. `cap` bounds the content rows regardless of how much the
+    /// panel would like; `min` refuses to place it at all below that.
+    fn push(&mut self, panel: Panel, r: &Report, o: &Opts, cap: Option<u16>, min: u16) {
+        let has_title = !panel.title().is_empty();
+        let (chrome_rows, chrome_cols) = frame_overhead(self.theme, has_title);
+        let inner_w = self.width.saturating_sub(chrome_cols);
+        if inner_w < 4 {
+            return;
+        }
+        let mut content = panel.content_height(r, inner_w, o);
+        if let Some(cap) = cap {
+            content = content.min(cap);
+        }
+        if content == 0 {
+            return;
+        }
+        let want = content + chrome_rows;
+        let room = self.room();
+        if room < min + chrome_rows {
+            return;
+        }
+        let height = want.min(room);
+        self.items.push((
+            panel,
+            Rect {
+                x: self.x,
+                y: self.y,
+                width: self.width,
+                height,
+            },
+        ));
+        self.y += height + self.theme.breathe;
+    }
+
+    fn end(&self) -> u16 {
+        self.y.saturating_sub(self.theme.breathe)
+    }
+}
+
+/// Work out where every panel goes. `height` bounds the result when the target
+/// is a live terminal; leave it `None` to let the plan grow to fit.
+pub fn plan(
+    layout: Layout,
+    r: &Report,
+    t: &Theme,
+    o: &Opts,
+    width: u16,
+    height: Option<u16>,
+) -> Plan {
+    let width = width.max(24);
+    let pad = if t.frame == crate::theme::Frame::None || t.frame == crate::theme::Frame::Underline {
+        1
+    } else {
+        0
+    };
+    let inner_w = width.saturating_sub(pad * 2);
+    let bottom = height.map(|h| h.saturating_sub(pad));
+    let x = pad;
+    let top = pad;
+
+    let mut items: Vec<(Panel, Rect)> = Vec::new();
+    let mut y = top;
+
+    // The header and the minimap always span the full width: they are the
+    // parts a reader takes in without moving their eyes.
+    {
+        let mut head = Column::new(x, y, inner_w, bottom, t);
+        head.push(Panel::Header, r, o, None, 3);
+        if !r.diagnostics.is_empty() {
+            head.push(Panel::Diagnostics, r, o, Some(4), 1);
+        }
+        if layout != Layout::Card {
+            head.push(Panel::Minimap, r, o, None, 2);
+        }
+        y = head.end() + t.breathe;
+        items.extend(head.items);
+    }
+
+    match layout {
+        Layout::Card => {
+            let mut col = Column::new(x, y, inner_w, bottom, t);
+            col.push(Panel::Caps, r, o, Some(3), 1);
+            col.push(Panel::Minimap, r, o, Some(2), 2);
+            col.push(Panel::Timeline, r, o, Some(14), 1);
+            y = col.end();
+            items.extend(col.items);
+        }
+        Layout::Flow => {
+            let mut col = Column::new(x, y, inner_w, bottom, t);
+            col.push(Panel::Caps, r, o, Some(2), 1);
+            let reserve = if r.effects.is_empty() { 0 } else { 10 };
+            let flow_cap = bottom.map(|b| b.saturating_sub(col.y + reserve));
+            col.push(Panel::Flow, r, o, flow_cap, 3);
+            col.push(Panel::Timeline, r, o, Some(10), 1);
+            y = col.end();
+            items.extend(col.items);
+        }
+        Layout::Stack => {
+            let mut col = Column::new(x, y, inner_w, bottom, t);
+            col.push(Panel::Caps, r, o, Some(3), 1);
+            col.push(Panel::Timeline, r, o, Some(16), 1);
+            col.push(Panel::Flow, r, o, Some(40), 3);
+            col.push(Panel::Imports, r, o, Some(10), 1);
+            col.push(Panel::Bindings, r, o, Some(14), 1);
+            col.push(Panel::Symbols, r, o, Some(12), 1);
+            col.push(Panel::Metrics, r, o, None, 2);
+            if o.code {
+                col.push(Panel::Code, r, o, Some(60), 3);
+            }
+            y = col.end();
+            items.extend(col.items);
+        }
+        Layout::Dashboard => {
+            // Below about 96 columns two columns stop earning their keep.
+            if inner_w < 96 {
+                return plan(Layout::Stack, r, t, o, width, height);
+            }
+            let gap = 2;
+            let left_w = (inner_w as f32 * 0.56) as u16;
+            let right_w = inner_w - left_w - gap;
+
+            let mut left = Column::new(x, y, left_w, bottom, t);
+            left.push(Panel::Flow, r, o, Some(60), 3);
+            if o.code {
+                left.push(Panel::Code, r, o, Some(40), 3);
+            }
+
+            let mut right = Column::new(x + left_w + gap, y, right_w, bottom, t);
+            right.push(Panel::Caps, r, o, Some(4), 1);
+            right.push(Panel::Timeline, r, o, Some(18), 1);
+            right.push(Panel::Imports, r, o, Some(9), 1);
+            right.push(Panel::Bindings, r, o, Some(12), 1);
+            right.push(Panel::Symbols, r, o, Some(10), 1);
+            right.push(Panel::Metrics, r, o, None, 2);
+
+            y = left.end().max(right.end());
+            items.extend(left.items);
+            items.extend(right.items);
+        }
+    }
+
+    let total = match height {
+        Some(h) => h,
+        None => y + pad,
+    };
+    Plan {
+        items,
+        width,
+        height: total.max(1),
+    }
+}
+
+/// Draw a plan. The buffer must already be the plan's size.
+pub fn draw(buf: &mut Buffer, plan: &Plan, r: &Report, t: &Theme, o: &Opts) {
+    canvas::fill(buf, buf.area, t.base());
+    for (panel, area) in &plan.items {
+        if area.height == 0 {
+            continue;
+        }
+        let inner = canvas::frame(buf, *area, t, panel.title());
+        panel.render(buf, inner, r, t, o);
+    }
+}
+
+/// Plan and draw in one step, returning the buffer.
+pub fn render(
+    r: &Report,
+    t: &Theme,
+    o: &Opts,
+    l: Layout,
+    width: u16,
+    height: Option<u16>,
+) -> Buffer {
+    let plan = plan(l, r, t, o, width, height);
+    let area = Rect {
+        x: 0,
+        y: 0,
+        width: plan.width,
+        height: plan.height,
+    };
+    let mut buf = Buffer::empty(area);
+    draw(&mut buf, &plan, r, t, o);
+    buf
+}

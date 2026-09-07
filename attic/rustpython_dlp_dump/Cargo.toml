@@ -1,0 +1,15 @@
+[package]
+name = "rustpython-dlp-dump"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "dlp_dump"
+path = "src/main.rs"
+
+[dependencies]
+rustpython-parser = "0.4.0"
+
+[dependencies.rustpython-ast]
+version = "0.4.0"
+features = ["visitor", "location", "malachite-bigint", "all-nodes-with-ranges"]
