@@ -21,6 +21,9 @@ __all__ = [
     "analyze",
     "render",
     "extract",
+    "look",
+    "feed",
+    "feed_path",
     "themes",
     "layouts",
     "backend",
@@ -73,6 +76,33 @@ def render(
 def extract(command: str) -> tuple[str, str]:
     """Pull the Python out of ``python3 <<'EOF' … EOF`` and friends."""
     return engine().extract(command)
+
+
+def look(
+    source: str,
+    *,
+    name: str = "<stdin>",
+    origin: str = "api",
+    path: str | None = None,
+    draw: bool = False,
+    **kw: Any,
+) -> tuple[dict[str, Any], str]:
+    """Analyse once, append a feed event, and render only if ``draw``.
+
+    The interceptor's hot path, exposed because it is also the cheapest way to
+    ask "what is this and should I care" from your own code.
+    """
+    return engine().look(source, name=name, source=origin, path=path, draw=draw, **kw)
+
+
+def feed(path: str | None = None) -> list[dict[str, Any]]:
+    """Every event in the feed log, oldest first."""
+    return engine().read_feed(path)
+
+
+def feed_path() -> str:
+    """Where the feed log lives."""
+    return engine().feed_path()
 
 
 def themes() -> list[tuple[str, str, str]]:

@@ -64,41 +64,80 @@ pyx -t carbon -l flow -i glyph script.py
 pyx --contact-sheet sheet.html script.py   # every combination, one page
 ```
 
-### In front of a command
+### Watching an agent
+
+An agent fires snippets several times a second, and that changes what the tool
+has to be. Two things follow.
+
+**The render is not for the model.** Whatever a hook or wrapper writes to
+stdout or stderr is, in most harnesses, captured and fed back as tool output —
+so drawing a report per snippet costs tokens, confuses the model, and scrolls
+past you anyway. So by default pyxray appends one JSON line to a feed log and
+draws nothing. You watch the log:
+
+```sh
+pyx watch                    # live column, in another pane
+pyx watch --floor check      # only what wanted a second look
+pyx watch --dump             # render it once and exit; scriptable
+```
+
+```
+ pyxray watch   214 snippets  ·  38/min  ·  6 flagged            feed.jsonl
+  risk ▁▁▂▁▁▁▂▁▁█▂▁▁▁▂▂▁▁▁▁▂▁
+   seen        ▆▄▁ ▂▁▃ ▁ █▂▁▁ █▁  fs · world · eval · work · out
+ ─────────────────────────────────────────────────────────────────────────
+   12s █     1 ··· ··· · ···· ¶·  prints results                  <heredoc>
+    9s █    30 ◂▸· ··§ · ∑··· ¶·  reads 2 files → writes 3 files  build.py
+    4s ███ 100 ·▸× ≈»§ ‡ ···· ¶·  DELETES /tmp/stage → runs 2 cmd <heredoc>
+                L7 rmtree /tmp/stage  recursively deletes a directory
+    1s █    10 ··· ≈·· · ···· ··  calls https://pypi.org/…        <heredoc>
+```
+
+Every capability owns a permanent column, so the *pattern* is what you
+recognise — the same profile always makes the same shape, and a snippet that
+lights the delete slot is visible before a word is read. The header's histogram
+sits in those same columns, so session totals line up with the rows underneath.
+
+**Nothing is blocked unless you ask.** `PYXRAY_GATE` is unset by default and
+pyxray only describes. Note that `PYXRAY_GATE=0` is not "no gate" — it refuses
+anything with any effect at all. `off` is spelled out for that reason and is
+the default.
+
+### In front of a command you type
 
 ```sh
 pyx --exec --confirm script.py      # show the X-ray, then ask
 pyx --exec --gate 40 script.py      # refuse outright above a risk of 40
 ```
 
-### As a `python3` shim
+### As a PATH shim (works everywhere)
 
 ```sh
-source shell/pyxray.sh              # wraps python3; PYXRAY_OFF=1 to disable
-export PYXRAY_GATE=60               # anything scarier stops and asks
+. integrations/shim/install.sh      # this shell
+integrations/shim/install.sh --print >> ~/.bashrc
 ```
 
-### As a Claude Code hook
+A real executable named `python3`, earlier on PATH than the real one. This is
+the version that catches an agent, because it is resolved by `execvp` — by any
+process, including the `sh -c` a harness spawns, a Makefile, or a
+`subprocess.run` deep inside a library.
 
-`.claude/settings.json`:
+`shell/pyxray.sh` also defines a `python3` shell *function*, which is fine for
+what you type yourself but will not catch an agent: non-interactive shells
+never read your rc file, and many harnesses use `/bin/sh` rather than bash.
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash",
-      "hooks": [{
-        "type": "command",
-        "command": "python3 -m pyxray.intercept --hook"
-      }]
-    }]
-  }
-}
+### As a harness hook
+
+Per-harness setup lives in `integrations/`: Claude Code, Hermes, OpenCode, and
+a tmux pane recipe. They all end up calling the same thing —
+
+```sh
+python3 -m pyxray.intercept --hook
 ```
 
-Every Bash command carrying a Python heredoc gets X-rayed on the way past. Set
-`PYXRAY_GATE` and anything above it turns into a permission prompt that says
-why.
+— which reads a `PreToolUse`-shaped payload on stdin, finds the Python in it
+(whether the tool takes Python directly or a shell command with a heredoc
+inside), records it, and asks the harness to stop only if you set a gate.
 
 ### From Python
 
@@ -128,7 +167,7 @@ Effects are grouped into thirteen capabilities, each with a severity:
 | `»` | runs commands | always; worse with `shell=True` |
 | `§` | environment | reading a secret, `getpass` |
 | `‡` | dynamic code | `eval`, `exec`, `pickle.loads`, `torch.load`, `yaml.load` |
-| `·` | prints | — |
+| `¶` | prints | — |
 | `?` | randomness | — |
 | `○` | time | — |
 | `≡` | concurrency | — |
@@ -145,6 +184,22 @@ string constants are folded so `rmtree(STAGE)` shows `/tmp/stage` rather than
 
 The risk score is driven by severity and by *combinations* — fetching and then
 executing scores higher than doing either twice.
+
+The **band** is what the compact renders show, and it asks severity first, not
+the score:
+
+| band | when | reads as |
+|---|---|---|
+| inert | nothing notable | one faint cell |
+| routine | notable work, any amount of it | one green cell |
+| check it | anything at caution severity | two amber cells |
+| read it first | caution, and a score at 60 or above | three red cells |
+
+Severity leads deliberately. Volume must not be able to impersonate danger: a
+script that writes three files is doing ordinary work and stays green at a
+score of 30, while one `shutil.rmtree` is worth stopping for at the same score.
+Colour and cell-count say the same thing twice, so the band survives a log
+file, a screenshot, and a reader who does not see the hue.
 
 ## What it does not do
 

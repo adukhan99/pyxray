@@ -51,6 +51,11 @@ impl Default for Opts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
+    /// The whole report on one row: band block, capability barcode, score,
+    /// synopsis. Built for a stream of them, not for one.
+    Line,
+    /// The barcode's key, printed once at the top of a feed.
+    Legend,
     Header,
     Flow,
     Timeline,
@@ -67,6 +72,8 @@ pub enum Panel {
 impl Panel {
     pub fn title(self) -> &'static str {
         match self {
+            Panel::Line => "",
+            Panel::Legend => "",
             Panel::Header => "",
             Panel::Flow => "flow",
             Panel::Timeline => "what it does",
@@ -81,9 +88,18 @@ impl Panel {
         }
     }
 
+    /// Whether this panel is drawn inside a frame. The one-liners are not:
+    /// they are single rows in somebody else's column, and a box around each
+    /// would triple the height of a feed.
+    pub fn framed(self) -> bool {
+        !matches!(self, Panel::Line | Panel::Legend)
+    }
+
     /// Rows of content this panel would like, excluding any frame.
     pub fn content_height(self, r: &Report, w: u16, o: &Opts) -> u16 {
         match self {
+            Panel::Line => 1,
+            Panel::Legend => 1,
             Panel::Header => 3 + u16::from(!r.diagnostics.is_empty()),
             Panel::Flow => flatten(r, o, &crate::theme::UNICODE).len() as u16,
             Panel::Timeline => r.timeline(usize::MAX).len().max(1) as u16,
@@ -107,6 +123,8 @@ impl Panel {
             return;
         }
         match self {
+            Panel::Line => line(buf, area, r, t, o),
+            Panel::Legend => legend(buf, area, t),
             Panel::Header => header(buf, area, r, t),
             Panel::Flow => flow(buf, area, r, t, o),
             Panel::Timeline => timeline(buf, area, r, t, o),
@@ -120,6 +138,153 @@ impl Panel {
             Panel::Code => code(buf, area, r, t),
         }
     }
+}
+
+// --------------------------------------------------------------- one-liner
+
+/// Width of the capability barcode, including the gaps between groups.
+pub fn barcode_width() -> u16 {
+    (Effect::BARCODE.len() + Effect::BARCODE_GROUPS.len() - 1) as u16
+}
+
+/// The fixed thirteen-slot capability strip.
+///
+/// Every capability owns a permanent column, so the *pattern* of lit cells is
+/// what a reader recognises — the same profile always makes the same shape,
+/// and two snippets can be told apart without reading a word. Unlit slots stay
+/// drawn, faintly: a barcode with holes in it only reads as a barcode if the
+/// holes are visible.
+pub fn barcode(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    mask: EffectMask,
+    t: &Theme,
+    lit_only: bool,
+) -> u16 {
+    let mut cx = x;
+    let mut slot = 0usize;
+    for (group, size) in Effect::BARCODE_GROUPS.iter().enumerate() {
+        if group > 0 {
+            cx += canvas::text(buf, cx, y, 1, " ", t.faint());
+        }
+        for _ in 0..*size {
+            let effect = Effect::BARCODE[slot];
+            slot += 1;
+            let on = mask.contains(effect);
+            let (ch, style) = if on {
+                (
+                    t.effect_icon(effect),
+                    Style::default()
+                        .fg(t.effect_color(effect))
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else if lit_only {
+                (' ', t.faint())
+            } else {
+                ('\u{00b7}', Style::default().fg(t.pal.rule))
+            };
+            cx += canvas::text(buf, cx, y, 1, &ch.to_string(), style);
+        }
+    }
+    cx - x
+}
+
+/// Three cells in the band's colour, filled by the band's weight. Colour and
+/// length say the same thing twice, so the strip survives a log file, a
+/// screenshot, and a reader who does not see the hue.
+fn band_block(buf: &mut Buffer, x: u16, y: u16, band: Band, t: &Theme) -> u16 {
+    let colour = match band {
+        Band::Inert => t.pal.faint,
+        Band::Routine => t.pal.ok,
+        Band::Check => t.pal.warn,
+        Band::Read => t.pal.danger,
+    };
+    let filled = band.weight();
+    for i in 0..3usize {
+        let (ch, style) = if i < filled {
+            ('\u{2588}', Style::default().fg(colour))
+        } else {
+            (' ', t.faint())
+        };
+        canvas::text(buf, x + i as u16, y, 1, &ch.to_string(), style);
+    }
+    3
+}
+
+fn line(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme, o: &Opts) {
+    let band = r.band();
+    let mut x = a.x;
+    x += band_block(buf, x, a.y, band, t);
+    x += canvas::text(
+        buf,
+        x,
+        a.y,
+        5,
+        &format!("{:>4} ", r.metrics.risk),
+        Style::default()
+            .fg(t.risk_color(r.metrics.risk))
+            .add_modifier(if band >= Band::Check {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
+    );
+    x += barcode(buf, x, a.y, r.mask(), t, o.icons == Icons::Glyph);
+    x += canvas::text(buf, x, a.y, 2, "  ", t.faint());
+
+    // The name is pinned to the right so a column of these lines stays
+    // scannable; the synopsis takes whatever is left.
+    let name = fit(&r.meta.name, (a.width / 4).max(8), t.gl.ellipsis);
+    let name_w = width(&name) + 2;
+    let room = a.right().saturating_sub(x).saturating_sub(name_w);
+    let synopsis = r.meta.synopsis.replace('\u{2192}', t.gl.arrow);
+    canvas::text(
+        buf,
+        x,
+        a.y,
+        room,
+        &fit(&synopsis, room, t.gl.ellipsis),
+        Style::default()
+            .fg(if band >= Band::Check {
+                t.pal.fg
+            } else {
+                t.pal.dim
+            })
+            .add_modifier(if band == Band::Read {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
+    );
+    canvas::segs_right_bounded(buf, x + room, a.right(), a.y, &[(name.as_str(), t.faint())]);
+}
+
+fn legend(buf: &mut Buffer, a: Rect, t: &Theme) {
+    let mut x = a.x;
+    x += canvas::text(buf, x, a.y, 8, "risk", t.faint());
+    x += canvas::text(buf, x, a.y, 4, "    ", t.faint());
+    let mut slot = 0usize;
+    for (group, size) in Effect::BARCODE_GROUPS.iter().enumerate() {
+        if group > 0 {
+            x += canvas::text(buf, x, a.y, 1, " ", t.faint());
+        }
+        for _ in 0..*size {
+            let effect = Effect::BARCODE[slot];
+            slot += 1;
+            x += canvas::text(
+                buf,
+                x,
+                a.y,
+                1,
+                &t.effect_icon(effect).to_string(),
+                Style::default().fg(t.effect_color(effect)),
+            );
+        }
+    }
+    x += canvas::text(buf, x, a.y, 3, "   ", t.faint());
+    let names = "fs \u{00b7} world \u{00b7} eval \u{00b7} work \u{00b7} out";
+    canvas::text(buf, x, a.y, a.right().saturating_sub(x), names, t.faint());
 }
 
 // ------------------------------------------------------------------- header
@@ -214,7 +379,7 @@ fn header(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme) {
     );
     x += bar_w;
     let tail = format!("  {risk:>3}  {word}");
-    canvas::text(
+    x += canvas::text(
         buf,
         x,
         a.y + 2,
@@ -222,6 +387,13 @@ fn header(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme) {
         &tail,
         Style::default().fg(colour),
     );
+
+    // The same barcode the one-line renders use, in the same reading order, so
+    // a card that blooms out of a feed asks the eye to relearn nothing.
+    let bar_w = barcode_width();
+    if a.right().saturating_sub(x) > bar_w + 2 {
+        barcode(buf, a.right() - bar_w, a.y + 2, r.mask(), t, false);
+    }
 
     if !r.diagnostics.is_empty() {
         let msg = format!(

@@ -194,13 +194,20 @@ pub fn synopsis(
 
 /// 0..100. Driven by severity, not volume: one `shutil.rmtree` should read
 /// louder than fifty `print`s.
+///
+/// The weights are pinned to the band boundaries rather than chosen for their
+/// own sake, because the band is what the compact renders show. One Caution
+/// lands exactly on "check it" (30) and one Notable exactly on "routine" (10),
+/// so a lone `rmtree` can never come out green and a lone `requests.get` can
+/// never come out inert. Anything else and the score and the colour would be
+/// telling a reader two different stories.
 pub fn risk(hits: &[EffectHit]) -> u8 {
     let mut score = 0u32;
     let mut caution_kinds: BTreeSet<Effect> = BTreeSet::new();
     for hit in hits {
         score += match hit.severity {
-            Severity::Caution => 22,
-            Severity::Notable => 6,
+            Severity::Caution => 30,
+            Severity::Notable => 10,
             Severity::Info => 1,
         };
         if hit.severity == Severity::Caution {

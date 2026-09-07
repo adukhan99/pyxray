@@ -1,0 +1,48 @@
+#!/bin/sh
+# pyxray PATH shim.
+#
+# A real executable named python3, placed earlier on PATH than the real one.
+# Unlike a shell function this works for *anything* that spawns a process —
+# an agent's `sh -c`, a Makefile, a subprocess.run() deep inside some library —
+# because it is resolved by execvp, not by a shell that read your rc file.
+#
+# Install with integrations/shim/install.sh, or by hand: put this directory
+# early on PATH and make sure PYTHONPATH can see the pyxray package.
+#
+# PYXRAY_OFF=1 makes this a no-op passthrough.
+
+set -e
+
+# Find the real interpreter: the first python3 on PATH that is not in this
+# directory. Without this the shim would exec itself forever.
+shim_dir=$(cd -- "$(dirname -- "$0")" && pwd)
+real=""
+IFS=:
+for dir in $PATH; do
+    [ -n "$dir" ] || dir=.
+    case "$(cd -- "$dir" 2>/dev/null && pwd)" in
+        "$shim_dir") continue ;;
+    esac
+    if [ -x "$dir/python3" ] && [ ! -d "$dir/python3" ]; then
+        real="$dir/python3"
+        break
+    fi
+done
+unset IFS
+
+if [ -z "$real" ]; then
+    echo "pyxray shim: no real python3 found on PATH" >&2
+    exit 127
+fi
+
+if [ "${PYXRAY_OFF:-0}" = "1" ] || [ $# -eq 0 ]; then
+    exec "$real" "$@"
+fi
+
+# If the package is not importable, get out of the way rather than break the
+# user's command — a broken observer is worse than no observer.
+if ! "$real" -c 'import pyxray' >/dev/null 2>&1; then
+    exec "$real" "$@"
+fi
+
+exec "$real" -m pyxray.intercept -- "$real" "$@"

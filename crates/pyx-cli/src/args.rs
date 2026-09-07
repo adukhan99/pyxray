@@ -14,6 +14,7 @@ USAGE
     pyx [OPTIONS] [FILE]
     cat script.py | pyx
     pyx --tui script.py
+    pyx watch                 live feed of everything analysed elsewhere
 
 INPUT
     FILE                Python file to read. Omit to read stdin.
@@ -22,7 +23,10 @@ INPUT
 
 LOOK
     -t, --theme ID      blueprint | neon | paper | carbon | amber | ansi | mono
-    -l, --layout ID     card | dashboard | stack | flow
+    -l, --layout ID     line | auto | card | dashboard | stack | flow
+                        auto is one row when it is dull, the card when it is
+                        not — the right default when a harness is firing
+                        several a second
     -i, --icons MODE    glyph | tag | both            (default: both)
         --depth N       fold the outline below depth N (default: 6)
         --code          show the source alongside the analysis
@@ -38,10 +42,26 @@ OUTPUT
         --contact-sheet PATH
                         render every theme and layout to one HTML page
 
+FEED
+        --emit [PATH]   append this analysis to the feed log as one JSON line
+                        (default: $PYXRAY_LOG, else $XDG_RUNTIME_DIR/pyxray)
+        --source NAME   label the event with where it came from
+        --quiet         emit only; draw nothing
+
+    pyx watch [PATH]    follow the log. Keys: q quit, p pause, f filter,
+                        n notes, t theme, c clear.
+        --dump          render the log once to stdout and exit
+        --replay        start from the whole log, not just what arrives next
+        --floor BAND    hide below inert | routine | check | read
+
 RUN
         --exec          run the snippet with python3 after showing the X-ray
         --confirm       with --exec, ask before running
-        --gate N        with --exec, refuse to run when risk exceeds N
+        --gate N        with --exec, refuse to run above this risk score.
+                        Off unless you set it: pyxray describes by default and
+                        blocks only on request. Note that --gate 0 blocks
+                        everything with any effect at all; --gate off is the
+                        default and is accepted explicitly.
 
 OTHER
         --list          list the available themes and layouts
@@ -49,7 +69,14 @@ OTHER
     -V, --version       version
 ";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Xray,
+    Watch,
+}
+
 pub struct Args {
+    pub mode: Mode,
     pub file: Option<String>,
     pub stdin_is_command: bool,
     pub theme: Theme,
@@ -67,11 +94,18 @@ pub struct Args {
     pub exec: bool,
     pub confirm: bool,
     pub gate: Option<u8>,
+    pub emit: Option<Option<String>>,
+    pub source: String,
+    pub quiet: bool,
+    pub replay: bool,
+    pub dump: bool,
+    pub floor: pyxray_core::model::Band,
 }
 
 impl Default for Args {
     fn default() -> Self {
         Args {
+            mode: Mode::Xray,
             file: None,
             stdin_is_command: false,
             theme: theme::default_theme(),
@@ -89,6 +123,12 @@ impl Default for Args {
             exec: false,
             confirm: false,
             gate: None,
+            emit: None,
+            source: "cli".to_string(),
+            quiet: false,
+            replay: false,
+            dump: false,
+            floor: pyxray_core::model::Band::Inert,
         }
     }
 }
@@ -102,7 +142,15 @@ pub enum Parsed {
 pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Parsed, String> {
     let mut a = Args::default();
     let mut explicit_layout = false;
+    let mut first = true;
     while let Some(arg) = it.next() {
+        if first {
+            first = false;
+            if arg == "watch" {
+                a.mode = Mode::Watch;
+                continue;
+            }
+        }
         let mut value = |name: &str| -> Result<String, String> {
             it.next().ok_or_else(|| format!("{name} needs a value"))
         };
@@ -114,6 +162,23 @@ pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Parsed, String> {
             "--code" => a.opts.code = true,
             "--no-gutter" => a.opts.gutter = false,
             "--stdin-is-command" => a.stdin_is_command = true,
+            "--quiet" => a.quiet = true,
+            "--replay" => a.replay = true,
+            "--dump" => a.dump = true,
+            "--emit" => a.emit = Some(None),
+            _ if arg.starts_with("--emit=") => {
+                a.emit = Some(Some(arg["--emit=".len()..].to_string()))
+            }
+            "--source" => a.source = value("--source")?,
+            "--floor" => {
+                a.floor = match value("--floor")?.as_str() {
+                    "inert" => pyxray_core::model::Band::Inert,
+                    "routine" => pyxray_core::model::Band::Routine,
+                    "check" => pyxray_core::model::Band::Check,
+                    "read" => pyxray_core::model::Band::Read,
+                    other => return Err(format!("unknown band {other:?}")),
+                }
+            }
             "--fragment" => a.fragment = true,
             "--exec" => a.exec = true,
             "--confirm" => a.confirm = true,
@@ -157,7 +222,13 @@ pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Parsed, String> {
                 a.opts.max_depth = parse_num(&value("--depth")?, "--depth")?;
             }
             "--gate" => {
-                a.gate = Some(parse_num::<u8>(&value("--gate")?, "--gate")?);
+                // `off` is spelled out because `0` reads like "no gate" and
+                // means the exact opposite: block anything with any effect.
+                let raw = value("--gate")?;
+                a.gate = match raw.as_str() {
+                    "off" | "none" | "" => None,
+                    other => Some(parse_num::<u8>(other, "--gate")?),
+                };
             }
             "-o" | "--out" => a.out = Some(value("--out")?),
             "--contact-sheet" => a.contact_sheet = Some(value("--contact-sheet")?),
@@ -167,10 +238,11 @@ pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Parsed, String> {
             other => a.file = Some(other.to_string()),
         }
     }
-    // The card is the right default when the output is a quick look before
-    // running something; the dashboard is right when someone asked to see it.
+    // Defaults follow the situation. Somebody who ran `pyx file.py` is reading
+    // a report; somebody about to execute wants a glance that gets out of the
+    // way unless it shouldn't.
     if !explicit_layout && a.exec {
-        a.layout = Layout::Card;
+        a.layout = Layout::Auto;
     }
     Ok(Parsed::Run(Box::new(a)))
 }

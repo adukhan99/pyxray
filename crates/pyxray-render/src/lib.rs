@@ -8,6 +8,7 @@
 
 pub mod canvas;
 pub mod export;
+pub mod feed;
 pub mod layout;
 pub mod panels;
 pub mod theme;

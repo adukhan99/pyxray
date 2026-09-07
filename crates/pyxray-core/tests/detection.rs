@@ -132,6 +132,44 @@ fn a_handle_carries_its_origin_into_the_write() {
 }
 
 #[test]
+fn one_caution_always_reaches_the_check_band() {
+    // The compact renders show a band, not a number. If a single destructive
+    // call could still come out green, the whole visual language would be
+    // lying at exactly the moment it matters.
+    for source in [
+        "import shutil\nshutil.rmtree('/data')",
+        "import subprocess\nsubprocess.run(['ls'])",
+        "eval(user_input)",
+        "import pickle\npickle.loads(blob)",
+    ] {
+        let report = xray(source, "t");
+        assert!(
+            report.band() >= pyxray_core::model::Band::Check,
+            "{source} landed in {:?} at risk {}",
+            report.band(),
+            report.metrics.risk
+        );
+    }
+}
+
+#[test]
+fn one_notable_reaches_the_routine_band() {
+    for source in [
+        "import requests\nrequests.get('https://h/')",
+        "import time\ntime.sleep(5)",
+        "open('out.txt', 'w')",
+    ] {
+        let report = xray(source, "t");
+        assert!(
+            report.band() >= pyxray_core::model::Band::Routine,
+            "{source} landed in {:?} at risk {}",
+            report.band(),
+            report.metrics.risk
+        );
+    }
+}
+
+#[test]
 fn quiet_things_stay_quiet() {
     // Pure computation should score nothing worth warning about.
     let report = xray(

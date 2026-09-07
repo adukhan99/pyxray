@@ -12,6 +12,12 @@ use crate::theme::Theme;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {
+    /// One row. For a feed of them, where the reader is watching a rate, not
+    /// reading a report.
+    Line,
+    /// One row when nothing interesting happened, the full card when something
+    /// did — so visual weight tracks how much attention is owed.
+    Auto,
     /// A glance: what it does, how risky, and the effect timeline. Sized for a
     /// terminal notification, not a session.
     Card,
@@ -26,6 +32,8 @@ pub enum Layout {
 impl Layout {
     pub fn id(self) -> &'static str {
         match self {
+            Layout::Line => "line",
+            Layout::Auto => "auto",
             Layout::Card => "card",
             Layout::Dashboard => "dashboard",
             Layout::Stack => "stack",
@@ -35,6 +43,10 @@ impl Layout {
 
     pub fn blurb(self) -> &'static str {
         match self {
+            Layout::Line => {
+                "One row: band, capability barcode, score, synopsis. Built for a stream."
+            }
+            Layout::Auto => "A row when it is dull, the card when it is not.",
             Layout::Card => "A glance: synopsis, risk, capabilities, effect timeline.",
             Layout::Dashboard => "Two columns: structure on the left, findings on the right.",
             Layout::Stack => "One column, everything, in reading order.",
@@ -42,8 +54,27 @@ impl Layout {
         }
     }
 
-    pub fn all() -> [Layout; 4] {
-        [Layout::Card, Layout::Dashboard, Layout::Stack, Layout::Flow]
+    pub fn all() -> [Layout; 6] {
+        [
+            Layout::Line,
+            Layout::Auto,
+            Layout::Card,
+            Layout::Dashboard,
+            Layout::Stack,
+            Layout::Flow,
+        ]
+    }
+
+    /// The layouts worth putting side by side in a contact sheet: `auto` is a
+    /// rule for choosing between two of the others, not a look of its own.
+    pub fn gallery() -> [Layout; 5] {
+        [
+            Layout::Line,
+            Layout::Card,
+            Layout::Dashboard,
+            Layout::Stack,
+            Layout::Flow,
+        ]
     }
 }
 
@@ -92,8 +123,11 @@ impl<'a> Column<'a> {
     /// Place a panel. `cap` bounds the content rows regardless of how much the
     /// panel would like; `min` refuses to place it at all below that.
     fn push(&mut self, panel: Panel, r: &Report, o: &Opts, cap: Option<u16>, min: u16) {
-        let has_title = !panel.title().is_empty();
-        let (chrome_rows, chrome_cols) = frame_overhead(self.theme, has_title);
+        let (chrome_rows, chrome_cols) = if panel.framed() {
+            frame_overhead(self.theme, !panel.title().is_empty())
+        } else {
+            (0, 0)
+        };
         let inner_w = self.width.saturating_sub(chrome_cols);
         if inner_w < 4 {
             return;
@@ -139,6 +173,38 @@ pub fn plan(
     height: Option<u16>,
 ) -> Plan {
     let width = width.max(24);
+
+    // `auto` is a decision, not an arrangement: below the "check it" band a
+    // snippet gets one row, and at or above it the full card. That is the
+    // whole answer to a harness firing several of these a second — the dull
+    // ones stay out of the way and the alarming one blooms.
+    if layout == Layout::Auto {
+        let resolved = if r.band() >= pyxray_core::model::Band::Check {
+            Layout::Card
+        } else {
+            Layout::Line
+        };
+        return plan(resolved, r, t, o, width, height);
+    }
+
+    // A single row has no frame, no padding and no header: it is one line in
+    // somebody else's column and must not decorate itself.
+    if layout == Layout::Line {
+        return Plan {
+            items: vec![(
+                Panel::Line,
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height: 1,
+                },
+            )],
+            width,
+            height: height.unwrap_or(1).max(1),
+        };
+    }
+
     let pad = if t.frame == crate::theme::Frame::None || t.frame == crate::theme::Frame::Underline {
         1
     } else {
@@ -168,6 +234,7 @@ pub fn plan(
     }
 
     match layout {
+        Layout::Line | Layout::Auto => unreachable!("handled above"),
         Layout::Card => {
             let mut col = Column::new(x, y, inner_w, bottom, t);
             col.push(Panel::Caps, r, o, Some(3), 1);
@@ -248,7 +315,11 @@ pub fn draw(buf: &mut Buffer, plan: &Plan, r: &Report, t: &Theme, o: &Opts) {
         if area.height == 0 {
             continue;
         }
-        let inner = canvas::frame(buf, *area, t, panel.title());
+        let inner = if panel.framed() {
+            canvas::frame(buf, *area, t, panel.title())
+        } else {
+            *area
+        };
         panel.render(buf, inner, r, t, o);
     }
 }

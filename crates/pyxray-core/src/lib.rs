@@ -12,6 +12,7 @@
 pub mod analyze;
 pub mod digest;
 pub mod effects;
+pub mod feed;
 pub mod model;
 pub mod source;
 

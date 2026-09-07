@@ -3,10 +3,12 @@
 mod args;
 mod sheet;
 mod tui;
+mod watch;
 
 use std::io::{IsTerminal, Read, Write};
 use std::process::ExitCode;
 
+use pyxray_core::feed;
 use pyxray_core::{extract_python, xray, Report};
 use pyxray_render::export::Format;
 use pyxray_render::layout;
@@ -42,6 +44,25 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
+    if a.mode == args::Mode::Watch {
+        let path = a
+            .file
+            .as_ref()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(feed::default_path);
+        watch::run(watch::Options {
+            path,
+            theme: a.theme,
+            opts: a.opts,
+            replay: a.replay,
+            floor: a.floor,
+            dump: a.dump,
+            size: (a.width, a.height),
+        })
+        .map_err(|e| e.to_string())?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
     let (source, name) = read_input(&a)?;
     let report = xray(&source, &name);
 
@@ -63,6 +84,25 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
+    // The feed comes first: it is the one output that must survive even when
+    // nothing is drawn, because it is what `pyx watch` is reading.
+    if let Some(target) = &a.emit {
+        let path = target
+            .as_ref()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(feed::default_path);
+        let event = report.event(&a.source);
+        if let Err(e) = feed::append(&path, &event) {
+            eprintln!("pyx: could not write {}: {e}", path.display());
+        }
+    }
+    if a.quiet {
+        if a.exec {
+            return execute(&report, &source, &a);
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
     let width = a.width.unwrap_or_else(|| term_width().unwrap_or(100));
     let style = pyxray_render::Style {
         theme: a.theme,
@@ -79,7 +119,12 @@ fn run() -> Result<ExitCode, String> {
     };
     let text = if a.fragment && format == Format::Html {
         let buf = pyxray_render::layout::render(
-            &report, &style.theme, &style.opts, style.layout, width, a.height,
+            &report,
+            &style.theme,
+            &style.opts,
+            style.layout,
+            width,
+            a.height,
         );
         pyxray_render::export::to_html_fragment(&buf, &style.theme)
     } else {
@@ -146,6 +191,7 @@ fn list() {
         println!("  {:<10} {}", l.id(), l.blurb());
     }
     println!("\nformats:\n  ansi  text  html  svg  json");
+    println!("\nfeed:\n  {}", feed::default_path().display());
 }
 
 /// Run the snippet, subject to whatever gate the caller asked for. The X-ray

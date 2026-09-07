@@ -91,6 +91,84 @@ fn render(
     ))
 }
 
+/// The interceptor's hot path: analyse once, append the feed event, and
+/// render only if somebody is actually looking.
+///
+/// A harness can fire several snippets a second, so this is deliberately one
+/// call rather than three — and `draw=False` skips the render entirely, which
+/// is the common case when the only consumer is `pyx watch` in another pane.
+///
+/// Returns `(event_json, rendered)`; `rendered` is empty when `draw` is false.
+#[pyfunction]
+#[pyo3(signature = (
+    code,
+    name = "<stdin>",
+    source = "shim",
+    path = None,
+    draw = true,
+    theme = "blueprint",
+    layout = "auto",
+    format = "ansi",
+    width = 100,
+    icons = "both",
+))]
+#[allow(clippy::too_many_arguments)]
+fn look(
+    code: &str,
+    name: &str,
+    source: &str,
+    path: Option<&str>,
+    draw: bool,
+    theme: &str,
+    layout: &str,
+    format: &str,
+    width: u16,
+    icons: &str,
+) -> PyResult<(String, String)> {
+    let report = pyxray_core::xray(code, name);
+    let event = report.event(source);
+    let target = path
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(pyxray_core::feed::default_path);
+    // A feed we cannot write is not worth failing the caller's command over —
+    // the interceptor is in front of somebody else's work.
+    let _ = pyxray_core::feed::append(&target, &event);
+
+    let json = serde_json::to_string(&event).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    if !draw {
+        return Ok((json, String::new()));
+    }
+    let style = pyxray_render::Style {
+        theme: pick_theme(theme)?,
+        layout: pick_layout(layout)?,
+        opts: Opts {
+            icons: pick_icons(icons)?,
+            ..Opts::default()
+        },
+    };
+    let rendered =
+        pyxray_render::render_to_string(&report, &style, pick_format(format)?, width, None);
+    Ok((json, rendered))
+}
+
+/// Where the feed log lives, resolved the same way the binary resolves it.
+#[pyfunction]
+fn feed_path() -> String {
+    pyxray_core::feed::default_path().display().to_string()
+}
+
+/// Read the whole feed back as a JSON array.
+#[pyfunction]
+#[pyo3(signature = (path = None))]
+fn read_feed(path: Option<&str>) -> PyResult<String> {
+    let target = path
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(pyxray_core::feed::default_path);
+    let events =
+        pyxray_core::feed::read_all(&target).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    serde_json::to_string(&events).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 /// Pull the Python out of a shell command: `python3 <<'EOF' … EOF`,
 /// `python -c '…'`, or a bare script. Returns `(source, label)`.
 #[pyfunction]
@@ -122,6 +200,9 @@ fn _pyxray(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(analyze_json, m)?)?;
     m.add_function(wrap_pyfunction!(render, m)?)?;
     m.add_function(wrap_pyfunction!(extract, m)?)?;
+    m.add_function(wrap_pyfunction!(look, m)?)?;
+    m.add_function(wrap_pyfunction!(feed_path, m)?)?;
+    m.add_function(wrap_pyfunction!(read_feed, m)?)?;
     m.add_function(wrap_pyfunction!(themes, m)?)?;
     m.add_function(wrap_pyfunction!(layouts, m)?)?;
     Ok(())

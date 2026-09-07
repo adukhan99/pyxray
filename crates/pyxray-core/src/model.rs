@@ -26,6 +26,31 @@ pub enum Effect {
 }
 
 impl Effect {
+    /// Reading order for the capability barcode: the fixed 13-slot strip a
+    /// reader learns as a *shape*. Grouped so related capabilities sit
+    /// together — filesystem, then the world outside the process, then
+    /// runtime code, then work, then output — because the eye learns
+    /// clusters faster than it learns thirteen separate positions.
+    pub const BARCODE: [Effect; 13] = [
+        Effect::FsRead,
+        Effect::FsWrite,
+        Effect::FsDelete,
+        Effect::Net,
+        Effect::Process,
+        Effect::Env,
+        Effect::Dynamic,
+        Effect::Compute,
+        Effect::Random,
+        Effect::Clock,
+        Effect::Concurrency,
+        Effect::Stdout,
+        Effect::Exit,
+    ];
+
+    /// Sizes of the barcode's groups, in `BARCODE` order. Rendered with a
+    /// gap between each, like the guard bars on a real barcode.
+    pub const BARCODE_GROUPS: [usize; 5] = [3, 3, 1, 4, 2];
+
     pub const ALL: [Effect; 13] = [
         Effect::FsRead,
         Effect::FsWrite,
@@ -458,7 +483,160 @@ pub struct Report {
     pub source: Vec<String>,
 }
 
+/// Which of the four risk bands a score falls in. The bands, not the number,
+/// are what anyone acts on — and at one render per second the band is all
+/// there is time to read.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum Band {
+    Inert,
+    Routine,
+    Check,
+    Read,
+}
+
+impl Band {
+    /// Band from the score alone. Only for places that have nothing else —
+    /// the sparkline, mostly. Prefer [`Band::assess`].
+    pub fn of(risk: u8) -> Band {
+        match risk {
+            0..=9 => Band::Inert,
+            10..=29 => Band::Routine,
+            30..=59 => Band::Check,
+            _ => Band::Read,
+        }
+    }
+
+    /// Band from the worst thing found, refined by the score.
+    ///
+    /// Severity leads because volume must not be able to impersonate danger:
+    /// a script that writes three files is doing ordinary work and should stay
+    /// green, while one `shutil.rmtree` is worth stopping for even though it
+    /// is a single call. Scoring alone cannot express that — three notables
+    /// and one caution land on the same number — so the two are kept separate
+    /// and the band asks the severity first.
+    pub fn assess(risk: u8, worst: Option<Severity>) -> Band {
+        match worst {
+            Some(Severity::Caution) => {
+                if risk >= 60 {
+                    Band::Read
+                } else {
+                    Band::Check
+                }
+            }
+            Some(Severity::Notable) => {
+                if risk >= 45 {
+                    Band::Check
+                } else {
+                    Band::Routine
+                }
+            }
+            _ => {
+                if risk >= 15 {
+                    Band::Routine
+                } else {
+                    Band::Inert
+                }
+            }
+        }
+    }
+
+    /// How many cells of the three-cell margin block to fill. Length carries
+    /// the same information as the colour, so the strip still reads when
+    /// colour does not survive — a log file, a colourblind reader, a
+    /// screenshot in a chat.
+    pub fn weight(self) -> usize {
+        match self {
+            Band::Inert => 1,
+            Band::Routine => 1,
+            Band::Check => 2,
+            Band::Read => 3,
+        }
+    }
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Band::Inert => "inert",
+            Band::Routine => "routine",
+            Band::Check => "check it",
+            Band::Read => "read it first",
+        }
+    }
+}
+
+/// One line in the feed: everything a watcher needs about a single snippet,
+/// small enough to append to a log a few times a second.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Event {
+    /// Milliseconds since the Unix epoch.
+    pub ts: u64,
+    pub name: String,
+    /// Where it came from: `hook`, `shim`, `cli`, or a harness name.
+    pub source: String,
+    pub lines: u32,
+    pub risk: u8,
+    pub band: Band,
+    /// The capability mask, for rendering the barcode without re-analysing.
+    pub mask: u16,
+    pub worst: Option<Severity>,
+    pub synopsis: String,
+    /// The few effects worth naming, most severe first.
+    pub notes: Vec<EventNote>,
+    /// Whether anything downstream refused to run it.
+    pub blocked: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct EventNote {
+    pub effect: Effect,
+    pub severity: Severity,
+    pub verb: String,
+    pub target: Option<String>,
+    pub line: u32,
+    pub note: Option<String>,
+}
+
 impl Report {
+    /// Condense to a feed event.
+    pub fn event(&self, source: &str) -> Event {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let mut notes: Vec<EventNote> = self
+            .effects
+            .iter()
+            .filter(|h| h.severity > Severity::Info)
+            .map(|h| EventNote {
+                effect: h.effect,
+                severity: h.severity,
+                verb: h.verb.clone(),
+                target: h.target.clone(),
+                line: h.line,
+                note: h.note.clone(),
+            })
+            .collect();
+        notes.sort_by(|a, b| b.severity.cmp(&a.severity).then(a.line.cmp(&b.line)));
+        notes.truncate(4);
+        Event {
+            ts,
+            name: self.meta.name.clone(),
+            source: source.to_string(),
+            lines: self.metrics.lines_total,
+            risk: self.metrics.risk,
+            band: self.band(),
+            mask: self.spine.effects.0,
+            worst: self.worst(),
+            synopsis: self.meta.synopsis.clone(),
+            notes,
+            blocked: false,
+        }
+    }
+
+    pub fn band(&self) -> Band {
+        Band::assess(self.metrics.risk, self.worst())
+    }
+
     /// Effects folded by kind, most severe first then most frequent, for the
     /// capability panel.
     pub fn effect_summary(&self) -> Vec<(Effect, Severity, u32)> {

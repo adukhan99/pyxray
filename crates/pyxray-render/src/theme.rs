@@ -100,7 +100,7 @@ pub const UNICODE: Glyphs = Glyphs {
     // width in a browser, which knocks a whole row of the grid out of line.
     effect_icons: [
         '\u{25c2}', '\u{25b8}', '\u{00d7}', '\u{2248}', '\u{00bb}', '\u{00a7}', '\u{2021}',
-        '\u{00b7}', '?', '\u{25cb}', '\u{2261}', '\u{2211}', '\u{25a0}',
+        '\u{00b6}', '?', '\u{25cb}', '\u{2261}', '\u{2211}', '\u{25a0}',
     ],
     severity: [' ', '\u{00b7}', '!'],
     check: '\u{221a}',
