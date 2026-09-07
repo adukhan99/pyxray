@@ -1,0 +1,14 @@
+# Paste this into ~/.hermes/config.yaml (top level).
+#
+# Hermes matches `matcher` as a regex against the tool name, and only honours
+# it for pre_tool_call and post_tool_call. Both of Hermes' Python surfaces are
+# covered: `execute_code` hands over Python directly, `terminal` hands over a
+# shell command that may have a heredoc in it.
+#
+# The command is run with shell=False after shlex.split, so it must be a real
+# executable — no pipes, no redirection. `~` is expanded.
+hooks:
+  pre_tool_call:
+    - command: "PYXRAY_HOOK_PATH"
+      matcher: "^(terminal|execute_code)$"
+      timeout: 5
