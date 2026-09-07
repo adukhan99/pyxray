@@ -42,8 +42,15 @@ make release        # builds target/release/pyx
 make install-ext    # puts the Python extension next to the package
 ```
 
-On this machine, `source env.sh` first — it points `CARGO_HOME` and the target
-directory at `/mnt/disk2` so the York home quota is left alone.
+If `$HOME` is small or quota'd — cargo's registry plus a release build runs to
+a couple of gigabytes — put them somewhere else and `source env.sh`:
+
+```sh
+export PYXRAY_BUILD_ROOT=/scratch/you/pyxray
+source env.sh
+```
+
+`env.sh` also sources `env.local.sh` if you have one, which is gitignored.
 
 ## Use it
 
@@ -102,6 +109,13 @@ sits in those same columns, so session totals line up with the rows underneath.
 pyxray only describes. Note that `PYXRAY_GATE=0` is not "no gate" — it refuses
 anything with any effect at all. `off` is spelled out for that reason and is
 the default.
+
+The two defaults that matter, and why: interception uses `--layout auto`, so a
+dull snippet gets one row and an alarming one blooms into the card and the
+pane stays scannable through a burst; and the feed lands in
+`$XDG_RUNTIME_DIR`, a tmpfs on any systemd machine, so a chatty session costs
+no disk and the record dies with the login. Set `PYXRAY_LOG` if you want to
+keep it.
 
 ### In front of a command you type
 

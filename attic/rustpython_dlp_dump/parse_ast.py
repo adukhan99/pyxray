@@ -1,5 +1,7 @@
 import re, json
-REG=__import__('glob').glob('/home/adukhan/.cargo/registry/src/*/rustpython-ast-0.4.0')[0]
+import os
+CARGO_HOME = os.environ.get('CARGO_HOME') or os.path.expanduser('~/.cargo')
+REG=__import__('glob').glob(f'{CARGO_HOME}/registry/src/*/rustpython-ast-0.4.0')[0]
 src=open(REG+"/src/gen/generic.rs").read()
 enums=set(re.findall(r'pub enum (\w+)<', src))
 structs={}

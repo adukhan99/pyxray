@@ -71,9 +71,9 @@ integration.
 | `PYXRAY_LOG` | feed log path (default: `$XDG_RUNTIME_DIR/pyxray/feed.jsonl`) |
 | `PYXRAY_DRAW` | `never` \| `tty` \| `always` (default: `tty`) |
 | `PYXRAY_TTY` | draw to this device instead, e.g. `/dev/pts/7` |
-| `PYXRAY_LAYOUT` | `line` \| `auto` \| `card` \| `dashboard` \| `stack` \| `flow` |
-| `PYXRAY_THEME` | `blueprint` \| `neon` \| `paper` \| `carbon` \| `amber` \| `ansi` \| `mono` |
-| `PYXRAY_ICONS` | `glyph` \| `tag` \| `both` |
+| `PYXRAY_LAYOUT` | `line` \| `auto` \| `card` \| `dashboard` \| `stack` \| `flow` (default: `auto`) |
+| `PYXRAY_THEME` | `blueprint` \| `neon` \| `paper` \| `carbon` \| `amber` \| `ansi` \| `mono` (default: `blueprint`) |
+| `PYXRAY_ICONS` | `glyph` \| `tag` \| `both` (default: `both`) |
 | `PYXRAY_WIDTH` | columns |
 | `PYXRAY_GATE` | `off` (default), or a risk score to refuse above |
 | `PYXRAY_CONFIRM=1` | ask before running (shim only; a hook has no terminal) |
@@ -81,3 +81,17 @@ integration.
 
 `PYXRAY_GATE=0` is **not** "no gate" — it refuses anything with any effect at
 all. `off` is spelled out for exactly that reason.
+
+## Why those defaults
+
+`auto` and a tmpfs feed, together, are the whole posture: **watch, don't
+gate.** A dull snippet gets one row and an alarming one blooms into the card,
+so the pane stays scannable through a burst without you tuning anything; and
+the log lives in `$XDG_RUNTIME_DIR`, which is a tmpfs on any systemd machine,
+so a chatty session costs no disk and the record dies with the login — the
+right lifetime for something you read live and never audit later. Point
+`PYXRAY_LOG` at a real path if you do want to keep it.
+
+The point is not to stop an agent doing something terrible. It is to let you
+see what a few hundred lines of tool calls actually touched, without reading a
+few hundred lines.

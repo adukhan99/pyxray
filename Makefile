@@ -44,15 +44,16 @@ install-ext: release
 	@printf 'installed python/pyxray/_pyxray.abi3.so\n'
 
 sheet: build
-	./target/debug/pyx --contact-sheet docs/contact-sheet.html --width $(WIDTH) $(EXAMPLE)
+	@mkdir -p build
+	./target/debug/pyx --contact-sheet build/contact-sheet.html --width $(WIDTH) $(EXAMPLE)
 
 demo: build
-	@mkdir -p docs/gallery
+	@mkdir -p build/gallery
 	@for t in blueprint neon paper carbon amber ansi mono; do \
-	  ./target/debug/pyx -t $$t -l dashboard -f svg -w $(WIDTH) -o docs/gallery/$$t.svg $(EXAMPLE); \
-	  ./target/debug/pyx -t $$t -l dashboard -f html -w $(WIDTH) -o docs/gallery/$$t.html $(EXAMPLE); \
+	  ./target/debug/pyx -t $$t -l dashboard -f svg -w $(WIDTH) -o build/gallery/$$t.svg $(EXAMPLE); \
+	  ./target/debug/pyx -t $$t -l dashboard -f html -w $(WIDTH) -o build/gallery/$$t.html $(EXAMPLE); \
 	done
-	@printf 'wrote docs/gallery/\n'
+	@printf 'wrote build/gallery/\n'
 
 clean:
 	$(CARGO) clean

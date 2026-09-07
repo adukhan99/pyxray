@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 # Generates src/overrides.rs: a complete `impl Visitor for DlpDumper` that emits
 # one .dlp line per AST node. Leaf fields are formatted by fmt_* helpers; the
@@ -5,7 +6,8 @@
 # generated visitor.rs) do the recursion.
 import re, glob, os
 
-PP = glob.glob("/home/adukhan/.cargo/registry/src/*/rustpython-ast-0.4.0")[0]
+CARGO_HOME = os.environ.get("CARGO_HOME") or os.path.expanduser("~/.cargo")
+PP = glob.glob(f"{CARGO_HOME}/registry/src/*/rustpython-ast-0.4.0")[0]
 SRC = f"{PP}/src/gen/visitor.rs"
 
 # Per-type leaf-field formatting. Keys are the rustpython-ast node type names.

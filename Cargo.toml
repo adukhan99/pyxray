@@ -11,7 +11,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/rvv522/pyxray"
+repository = "https://github.com/adukhan99/pyxray"
 
 [workspace.dependencies]
 pyxray-core = { path = "crates/pyxray-core" }
