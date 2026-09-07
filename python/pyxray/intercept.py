@@ -213,12 +213,31 @@ def _run_wrapped(argv: list[str]) -> int:
 
 
 #: Tool names, across harnesses, whose arguments carry Python directly.
-CODE_TOOLS = {"execute_code", "python", "run_python", "ipython", "code_interpreter"}
+#: Compared case-insensitively — Claude Code says "Bash", Hermes says
+#: "terminal", and a matcher that cares about the capital B silently ignores
+#: every payload, which is the worst possible failure for an observer.
+CODE_TOOLS = {"execute_code", "python", "run_python", "ipython", "code_interpreter",
+              "python_tool", "jupyter", "notebookedit"}
 #: Tool names whose arguments carry a shell command that might contain Python.
-SHELL_TOOLS = {"bash", "terminal", "shell", "run_command", "execute_command", "sh"}
+SHELL_TOOLS = {"bash", "terminal", "shell", "run_command", "execute_command", "sh",
+               "bashtool", "run_terminal_cmd", "execute_bash", "shell_command"}
 #: Argument keys to look in, in order of preference.
 CODE_KEYS = ("code", "source", "script", "python", "content")
 SHELL_KEYS = ("command", "cmd", "commandLine", "args")
+
+
+def _looks_like_python(text: str) -> bool:
+    """Cheap guard for tools we could not identify.
+
+    A tool we do not recognise might be handing us a shell command in a field
+    called `script`, and analysing that as Python would produce nonsense. The
+    parser recovers from anything, so this only has to be roughly right.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    markers = ("import ", "from ", "def ", "class ", "print(", "=", "\n")
+    return any(marker in stripped for marker in markers)
 
 
 def python_in_payload(payload: dict[str, Any]) -> tuple[str, str] | None:
@@ -232,13 +251,21 @@ def python_in_payload(payload: dict[str, Any]) -> tuple[str, str] | None:
     if not isinstance(args, dict):
         return None
 
-    if tool in CODE_TOOLS or not tool:
-        for key in CODE_KEYS:
-            value = args.get(key)
-            if isinstance(value, str) and value.strip():
-                return value, f"{tool or 'code'}"
+    key = tool.lower()
+    takes_code = key in CODE_TOOLS
+    takes_shell = key in SHELL_TOOLS
+    # A tool we have never heard of gets both treatments rather than none:
+    # being wrong about the shape costs a wasted parse, being silent costs the
+    # whole point of the hook.
+    unknown = not (takes_code or takes_shell)
 
-    if tool in SHELL_TOOLS or not tool:
+    if takes_code or unknown:
+        for field in CODE_KEYS:
+            value = args.get(field)
+            if isinstance(value, str) and value.strip() and _looks_like_python(value):
+                return value, tool or "code"
+
+    if takes_shell or unknown:
         for key in SHELL_KEYS:
             value = args.get(key)
             if isinstance(value, list):

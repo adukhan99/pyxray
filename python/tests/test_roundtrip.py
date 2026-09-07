@@ -105,6 +105,102 @@ def test_interceptor_runs_harmless_code():
     assert "ran" in proc.stdout
 
 
+def test_hook_finds_python_in_every_harness_shape():
+    """The payload shapes the shipped integrations actually produce.
+
+    Tool names are compared case-insensitively: Claude Code says "Bash",
+    Hermes says "terminal", and a matcher that cares about the capital B
+    ignores every payload silently — the worst failure an observer can have.
+    """
+    from pyxray.intercept import python_in_payload
+
+    cases = [
+        # Claude Code: capitalised tool, heredoc inside a shell command.
+        ({"tool_name": "Bash",
+          "tool_input": {"command": "python3 <<'EOF'\nimport os\nEOF"}}, "import os"),
+        # Hermes: a tool that takes Python directly.
+        ({"tool_name": "execute_code",
+          "tool_input": {"code": "import shutil\nshutil.rmtree('/x')"}}, "rmtree"),
+        # Hermes: its shell tool.
+        ({"tool_name": "terminal",
+          "tool_input": {"command": "python3 -c 'import sys\nprint(sys.path)'"}}, "import sys"),
+        # OpenCode: lowercase bash, argv-shaped.
+        ({"tool": "bash", "args": {"command": "python -c \"import json\nprint(1)\""}},
+         "import json"),
+        # A harness we have never seen, with the code in an odd field.
+        ({"tool_name": "mystery_runner", "input": {"script": "import os\nos.remove('x')"}},
+         "os.remove"),
+    ]
+    for payload, needle in cases:
+        found = python_in_payload(payload)
+        assert found is not None, payload
+        assert needle in found[0], (payload, found)
+
+
+def test_hook_ignores_things_that_are_not_python():
+    from pyxray.intercept import python_in_payload
+
+    for payload in [
+        {"tool_name": "Bash", "tool_input": {"command": "git status"}},
+        {"tool_name": "Bash", "tool_input": {"command": "ls -la /tmp"}},
+        {"tool_name": "Read", "tool_input": {"file_path": "/etc/hosts"}},
+        {"tool_name": "Bash", "tool_input": {}},
+        {},
+    ]:
+        assert python_in_payload(payload) is None, payload
+
+
+def test_gate_off_is_the_default_and_zero_is_not_off():
+    import os
+
+    from pyxray.intercept import gate
+
+    saved = os.environ.pop("PYXRAY_GATE", None)
+    try:
+        assert gate() is None
+        for value in ("off", "none", "", "  "):
+            os.environ["PYXRAY_GATE"] = value
+            assert gate() is None, value
+        # 0 reads like "no gate" and means the opposite. That is deliberate,
+        # and it is why `off` exists — but 0 must keep meaning what it says.
+        os.environ["PYXRAY_GATE"] = "0"
+        assert gate() == 0
+        os.environ["PYXRAY_GATE"] = "40"
+        assert gate() == 40
+    finally:
+        os.environ.pop("PYXRAY_GATE", None)
+        if saved is not None:
+            os.environ["PYXRAY_GATE"] = saved
+
+
+def test_the_feed_records_without_drawing():
+    """The default path: one line appended, nothing rendered."""
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        log = os.path.join(tmp, "feed.jsonl")
+        saved = os.environ.get("PYXRAY_LOG")
+        os.environ["PYXRAY_LOG"] = log
+        os.environ["PYXRAY_DRAW"] = "never"
+        try:
+            from pyxray.intercept import look
+
+            event = look(SKETCHY, "sketchy.py", source="test")
+            assert event["risk"] > 60
+            assert event["band"] == "read"
+            rows = pyxray.feed(log)
+            assert len(rows) == 1
+            assert rows[0]["source"] == "test"
+            assert rows[0]["mask"] > 0
+        finally:
+            os.environ.pop("PYXRAY_DRAW", None)
+            if saved is None:
+                os.environ.pop("PYXRAY_LOG", None)
+            else:
+                os.environ["PYXRAY_LOG"] = saved
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

@@ -1,0 +1,8 @@
+{
+  "name": "pyxray",
+  "version": "0.1.0",
+  "description": "X-ray every Python snippet Claude runs — capability barcode, risk band, and a live feed you watch in another pane.",
+  "author": { "name": "adukhan99" },
+  "homepage": "https://github.com/adukhan99/pyxray",
+  "keywords": ["python", "static-analysis", "observability", "safety"]
+}

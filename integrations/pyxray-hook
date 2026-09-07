@@ -1,0 +1,30 @@
+#!/bin/sh
+# The one entry point every harness integration points at.
+#
+# Reads a PreToolUse-shaped JSON payload on stdin, finds the Python inside it
+# (a tool that takes code directly, or a shell command with a heredoc in it),
+# records it to the feed, and writes a block decision on stdout only if a gate
+# is configured. Otherwise it prints nothing and exits 0.
+#
+# It resolves its own location so no harness has to be told where pyxray is,
+# and it never fails the caller: an observer that breaks somebody's tool call
+# is worse than no observer.
+
+set -e
+
+here=$(cd -- "$(dirname -- "$0")" && pwd)
+root=$(cd -- "$here/.." && pwd)
+
+PYTHONPATH="$root/python${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+
+if [ -z "$PYXRAY_BIN" ]; then
+    for candidate in "$root/target/release/pyx" "$root/target/debug/pyx"; do
+        [ -x "$candidate" ] && { PYXRAY_BIN="$candidate"; export PYXRAY_BIN; break; }
+    done
+fi
+
+python=${PYXRAY_PYTHON:-python3}
+command -v "$python" >/dev/null 2>&1 || exit 0
+
+exec "$python" -m pyxray.intercept --hook 2>/dev/null || exit 0
