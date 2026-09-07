@@ -34,6 +34,10 @@ pub struct Options {
     pub floor: Band,
     /// Render what is in the log once and exit, instead of following it.
     pub dump: bool,
+    /// Output format for `--dump`.
+    pub format: export::Format,
+    /// Emit the bare `<pre>` rather than a whole document, for embedding.
+    pub fragment: bool,
     /// Columns and rows to render at when dumping; `None` asks the terminal.
     pub size: (Option<u16>, Option<u16>),
 }
@@ -81,10 +85,13 @@ pub fn run(o: Options) -> io::Result<()> {
             (state.events.len() as u16).saturating_add(6).max(th)
         });
         let buf = compose(&state, &o, w, h);
-        let text = if std::io::stdout().is_terminal() {
-            export::to_ansi(&buf, &THEMES[state.theme])
-        } else {
-            export::to_text(&buf)
+        let theme = THEMES[state.theme];
+        let text = match o.format {
+            // A dump with no format asked for follows the terminal: escapes
+            // when someone is looking, plain text when it is going into a file.
+            export::Format::Ansi if !std::io::stdout().is_terminal() => export::to_text(&buf),
+            export::Format::Html if o.fragment => export::to_html_fragment(&buf, &theme),
+            other => export::emit(&buf, &theme, other, "pyxray watch"),
         };
         print!("{text}");
         return Ok(());

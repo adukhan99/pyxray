@@ -57,6 +57,8 @@ fn run() -> Result<ExitCode, String> {
             replay: a.replay,
             floor: a.floor,
             dump: a.dump,
+            format: a.format,
+            fragment: a.fragment,
             size: (a.width, a.height),
         })
         .map_err(|e| e.to_string())?;

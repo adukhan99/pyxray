@@ -9,6 +9,7 @@ F = json.loads((S / "frags.json").read_text())
 I = json.loads((S / "themeinfo.json").read_text())
 THEMES = ["blueprint", "neon", "paper", "carbon", "amber", "ansi", "mono"]
 LAYOUTS = [
+    ("line", "One row. Band block, capability barcode, score, sentence. This is what a feed is made of \u2014 shown here on its own so you can see one.", "96 cols"),
     ("card", "A glance. Synopsis, risk meter, capability chips, effect timeline. Sized to sit in front of a command you are about to run.", "96 cols"),
     ("dashboard", "Two columns. The outline on the left, the findings on the right. Falls back to stack below 96 columns.", "118 cols"),
     ("stack", "One column, everything, in reading order. Imports, values and calls included.", "96 cols"),
@@ -239,7 +240,8 @@ footer.foot code { font:400 13px/1 "IBM Plex Mono", monospace; background:var(--
 <header class="top">
   <p class="eyebrow">pyxray lookdev &middot; 7 themes &middot; 4 layouts &middot; 3 labellings</p>
   <h1>Pick how pyxray should look</h1>
-  <p class="lede">Every specimen below is a real render of <b>examples/sketchy.py</b> &mdash; 22 lines that read a token from the environment, delete a directory, download and unpickle a payload, and shell out four times. <b>pyxray</b> scores it 100 and says so in one line. The question is only which way of saying it you want to look at every day.</p>
+  <p class="lede">An agent fires Python several times a second, so this is what pyxray shows by default: <b>a live feed, one row per snippet</b>, in a pane the model never writes to. Every specimen below is a real render of the same minute of traffic &mdash; six ordinary snippets, one that shells out, one that should stop you.</p>
+  <p class="lede">Every capability owns a permanent column, so the <b>pattern</b> is what you recognise. Read the delete column downwards and the one row that matters finds you before you have read a word.</p>
   <p class="lede">Mark one in each band. Your picks are saved, and the assembled command is at the top.</p>
 </header>
 
@@ -256,19 +258,32 @@ footer.foot code { font:400 13px/1 "IBM Plex Mono", monospace; background:var(--
   </div>
 </div></div>
 
-<section class="band">
+<section class="band" id="key">
   <div class="bandhead">
-    <h2>Themes</h2><span class="n">7 &middot; card layout &middot; 92 cols</span>
-    <p>Layout and labelling held constant. Contrast figures are measured against each theme&rsquo;s own ground; every role in every theme clears 3:1.</p>
+    <h2>Reading a row</h2><span class="n">the whole language</span>
+    <p>Four fixed fields, then the sentence. Nothing moves between rows, which is what makes a column of them scannable.</p>
   </div>
-  __THEMES__
-  <p class="note">ANSI and mono resolve their colours from your terminal, so the grounds shown here are stand-ins. They are the ones that survive a strange <code>TERM</code>, a shared tmux session, or a log file.</p>
+  <dl class="legend">
+    <div><dt>band</dt><dd>Colour <em>and</em> length say how much attention is owed &mdash; one faint cell inert, one green routine, two amber check it, three red read it first. Said twice so it survives a log file, a screenshot, and a reader who does not see hue.</dd></div>
+    <div><dt>score</dt><dd>0&ndash;100. Severity-weighted, not volume-weighted, and it compounds on combinations: fetching <em>and</em> executing beats doing either twice.</dd></div>
+    <div><dt>barcode</dt><dd>Thirteen fixed slots in five groups &mdash; filesystem, the world outside the process, runtime code, work, output. A capability never moves column, so the same profile always makes the same shape.</dd></div>
+    <div><dt>sentence</dt><dd>What it does, in pipeline order, with the real paths and URLs folded in. A caution jumps to the front.</dd></div>
+  </dl>
 </section>
 
 <section class="band">
   <div class="bandhead">
-    <h2>Layouts</h2><span class="n">4 &middot; blueprint &middot; examples/analysis.py</span>
-    <p>A calmer snippet here, because layout is about structure: 60 lines that read CSVs, aggregate with pandas and write two files.</p>
+    <h2>Themes</h2><span class="n">7 &middot; live feed &middot; 100 cols</span>
+    <p>The same minute of agent traffic in each theme, because the feed is the surface you will actually stare at. Contrast figures are measured against each theme&rsquo;s own ground; every role in every theme clears 3:1.</p>
+  </div>
+  __THEMES__
+  <p class="note">ANSI and mono resolve their colours from your terminal, so the grounds shown here are stand-ins. They are the ones that survive a strange <code>TERM</code>, a shared tmux session, or a log file &mdash; and mono is the one where the band&rsquo;s cell-count has to carry the whole signal on its own.</p>
+</section>
+
+<section class="band">
+  <div class="bandhead">
+    <h2>Layouts</h2><span class="n">5 &middot; blueprint &middot; examples/analysis.py</span>
+    <p>One snippet, five ways. A calmer one, because layout is about structure: 60 lines that read CSVs, aggregate with pandas and write two files. <code>auto</code> is not shown because it is not a look &mdash; it is the rule that gives a dull snippet the <code>line</code> and an alarming one the <code>card</code>.</p>
   </div>
   __LAYOUTS__
 </section>
@@ -282,7 +297,7 @@ footer.foot code { font:400 13px/1 "IBM Plex Mono", monospace; background:var(--
 </section>
 
 <footer class="foot">
-  <p>Regenerate any of these against your own code with <code>pyx --contact-sheet sheet.html your_script.py</code>, or flip through them live with <code>pyx --tui your_script.py</code> &mdash; <code>t</code> cycles themes, <code>l</code> layouts, <code>i</code> labelling.</p>
+  <p>Regenerate any of these against your own code with <code>make lookdev</code>, or flip through them live with <code>pyx --tui your_script.py</code> &mdash; <code>t</code> cycles themes, <code>l</code> layouts, <code>i</code> labelling. The feed itself is <code>pyx watch</code>; <code>t</code> cycles themes there too.</p>
   <p class="saveline" id="saveline">&nbsp;</p>
 </footer>
 </div>
