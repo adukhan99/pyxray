@@ -66,7 +66,8 @@ icon_rows = [{"id": i, "title": i, "flag": f"-i {i}", "blurb": f"{b} {why}",
               "body": specimen(F["icons"][i])} for i, b, why in ICONS]
 
 PAGE = """<title>pyxray Contact Sheet</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400;700&display=swap">
+<!-- System fonts only: the page must work offline and must not phone home,
+     which matters for a tool whose whole pitch is knowing what code touches. -->
 <style>
 :root {
   --ground:#f4f4f2; --panel:#ffffff; --sunk:#ececeb;
@@ -96,7 +97,7 @@ PAGE = """<title>pyxray Contact Sheet</title>
 * { box-sizing:border-box; }
 body {
   margin:0; background:var(--ground); color:var(--ink);
-  font:16px/1.55 "IBM Plex Sans", ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font:16px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing:antialiased;
 }
 .wrap { max-width:1240px; margin:0 auto; padding:0 24px 96px; }
@@ -104,11 +105,11 @@ body {
 /* ---- masthead ---- */
 header.top { padding:56px 0 8px; }
 .eyebrow {
-  font:500 12px/1 "IBM Plex Mono", ui-monospace, monospace;
+  font:500 12px/1 ui-monospace, monospace;
   letter-spacing:.18em; text-transform:uppercase; color:var(--faint); margin:0 0 14px;
 }
 h1 {
-  font:700 clamp(34px,5vw,52px)/1.02 Archivo, ui-sans-serif, sans-serif;
+  font:700 clamp(34px,5vw,52px)/1.02 ui-sans-serif, sans-serif;
   letter-spacing:-.028em; margin:0 0 14px; text-wrap:balance;
 }
 .lede { font-size:18px; color:var(--muted); max-width:62ch; margin:0 0 8px; }
@@ -126,22 +127,22 @@ h1 {
 .picks { display:flex; gap:18px; flex-wrap:wrap; }
 .pick { display:flex; flex-direction:column; gap:1px; }
 .pick dt {
-  font:500 10px/1 "IBM Plex Mono", monospace; letter-spacing:.16em;
+  font:500 10px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing:.16em;
   text-transform:uppercase; color:var(--faint);
 }
 .pick dd {
-  margin:0; font:500 14px/1.2 "IBM Plex Mono", monospace; color:var(--ink);
+  margin:0; font:500 14px/1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:var(--ink);
   font-variant-numeric:tabular-nums;
 }
 .pick dd.empty { color:var(--faint); font-weight:400; }
 .cmd { margin-left:auto; display:flex; align-items:center; gap:8px; }
 .cmd code {
-  font:400 13px/1.4 "IBM Plex Mono", monospace; color:var(--ink);
+  font:400 13px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:var(--ink);
   background:var(--sunk); border:1px solid var(--line-soft);
   border-radius:5px; padding:5px 9px; white-space:nowrap;
 }
 button.copy, button.wtoggle {
-  font:500 12px/1 "IBM Plex Mono", monospace; letter-spacing:.06em; text-transform:uppercase;
+  font:500 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing:.06em; text-transform:uppercase;
   color:var(--muted); background:transparent; border:1px solid var(--line);
   border-radius:5px; padding:7px 11px; cursor:pointer;
 }
@@ -154,10 +155,10 @@ section.band { margin-top:64px; }
 .bandhead { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;
             padding-bottom:12px; border-bottom:1px solid var(--line); }
 .bandhead h2 {
-  font:600 22px/1.1 Archivo, sans-serif; letter-spacing:-.015em; margin:0;
+  font:600 22px/1.1 ui-sans-serif, sans-serif; letter-spacing:-.015em; margin:0;
 }
 .bandhead .n {
-  font:500 11px/1 "IBM Plex Mono", monospace; letter-spacing:.14em;
+  font:500 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing:.14em;
   text-transform:uppercase; color:var(--faint);
 }
 .bandhead p { margin:0; color:var(--muted); font-size:15px; flex:1 1 34ch; }
@@ -170,28 +171,28 @@ section.band { margin-top:64px; }
 .frame:last-child { border-bottom:0; }
 .capline { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
 .caption h3 {
-  margin:0; font:600 19px/1.15 Archivo, sans-serif; letter-spacing:-.01em;
+  margin:0; font:600 19px/1.15 ui-sans-serif, sans-serif; letter-spacing:-.01em;
 }
 .caption p { margin:8px 0 0; font-size:14px; color:var(--muted); }
 code.flag {
-  font:400 12px/1 "IBM Plex Mono", monospace; color:var(--faint);
+  font:400 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:var(--faint);
   background:var(--sunk); border-radius:4px; padding:3px 6px;
 }
 dl.stats { display:flex; flex-wrap:wrap; gap:4px 18px; margin:14px 0 0; }
 dl.stats div { display:flex; flex-direction:column; gap:1px; }
 dl.stats dt {
-  font:400 10px/1.3 "IBM Plex Mono", monospace; letter-spacing:.12em;
+  font:400 10px/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing:.12em;
   text-transform:uppercase; color:var(--faint);
 }
 dl.stats dd {
-  margin:0; font:500 13px/1.3 "IBM Plex Mono", monospace;
+  margin:0; font:500 13px/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-variant-numeric:tabular-nums; display:flex; align-items:center; gap:6px;
 }
 .swatch { width:11px; height:11px; border-radius:2px; border:1px solid var(--line); display:inline-block; }
 
 button.mark {
   margin-top:18px; display:inline-flex; align-items:center; gap:9px;
-  font:500 12px/1 "IBM Plex Mono", monospace; letter-spacing:.1em; text-transform:uppercase;
+  font:500 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing:.1em; text-transform:uppercase;
   color:var(--muted); background:transparent; border:0; padding:0; cursor:pointer;
 }
 button.mark .ring {
@@ -225,8 +226,8 @@ button.mark:hover .ring { border-color:var(--muted); }
 }
 .note { margin:14px 0 0; font-size:13px; color:var(--faint); }
 footer.foot { margin-top:72px; padding-top:22px; border-top:1px solid var(--line); color:var(--muted); font-size:14px; }
-footer.foot code { font:400 13px/1 "IBM Plex Mono", monospace; background:var(--sunk); padding:2px 5px; border-radius:4px; }
-.saveline { font:400 12px/1 "IBM Plex Mono", monospace; color:var(--faint); }
+footer.foot code { font:400 13px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background:var(--sunk); padding:2px 5px; border-radius:4px; }
+.saveline { font:400 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:var(--faint); }
 
 @media (max-width: 860px) {
   .frame { grid-template-columns:minmax(0,1fr); gap:16px; }

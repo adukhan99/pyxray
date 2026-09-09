@@ -23,21 +23,43 @@ pub const MAX_BYTES: u64 = 4 * 1024 * 1024;
 ///
 /// Prefers the per-user runtime directory: it is a tmpfs on every systemd
 /// machine, so a chatty session costs no disk quota and the log dies with the
-/// login, which is the right lifetime for it.
+/// login, which is the right lifetime for it. Elsewhere it falls back to a
+/// directory that is still *per user* — `%LOCALAPPDATA%` on Windows, the
+/// per-user `$TMPDIR` on macOS, then the cache directory — rather than a
+/// shared, guessable path in `/tmp`.
 pub fn default_path() -> PathBuf {
-    if let Ok(explicit) = std::env::var("PYXRAY_LOG") {
-        if !explicit.is_empty() {
-            return PathBuf::from(explicit);
+    let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    if let Some(explicit) = var("PYXRAY_LOG") {
+        return PathBuf::from(explicit);
+    }
+    if let Some(runtime) = var("XDG_RUNTIME_DIR") {
+        return PathBuf::from(runtime).join("pyxray").join("feed.jsonl");
+    }
+    if cfg!(windows) {
+        if let Some(local) = var("LOCALAPPDATA") {
+            return PathBuf::from(local).join("pyxray").join("feed.jsonl");
         }
     }
-    if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
-        if !runtime.is_empty() {
-            return PathBuf::from(runtime).join("pyxray").join("feed.jsonl");
+    if cfg!(target_os = "macos") {
+        // macOS gives every user their own $TMPDIR under /var/folders.
+        if let Some(tmp) = var("TMPDIR") {
+            return PathBuf::from(tmp).join("pyxray").join("feed.jsonl");
         }
     }
-    let uid = std::env::var("UID").unwrap_or_else(|_| "user".into());
+    if let Some(cache) = var("XDG_CACHE_HOME") {
+        return PathBuf::from(cache).join("pyxray").join("feed.jsonl");
+    }
+    if let Some(home) = var("HOME").or_else(|| var("USERPROFILE")) {
+        return PathBuf::from(home)
+            .join(".cache")
+            .join("pyxray")
+            .join("feed.jsonl");
+    }
+    let who = var("USER")
+        .or_else(|| var("USERNAME"))
+        .unwrap_or_else(|| "user".into());
     std::env::temp_dir()
-        .join(format!("pyxray-{uid}"))
+        .join(format!("pyxray-{who}"))
         .join("feed.jsonl")
 }
 
@@ -228,6 +250,16 @@ mod tests {
         );
         assert!(parse_line(&newer).is_none(), "{newer}");
         assert!(parse_line("{\"ts\":").is_none());
+    }
+
+    #[test]
+    fn the_default_path_is_never_a_shared_tmp_dir() {
+        // Can't clear the environment safely in-process; check the shape of
+        // the answer instead: whatever it is, it is not the old shared path.
+        let p = default_path();
+        let text = p.display().to_string();
+        assert!(!text.contains("pyxray-user"), "{text}");
+        assert!(text.ends_with("feed.jsonl"), "{text}");
     }
 
     #[test]

@@ -1,0 +1,18 @@
+{
+  "name": "pyxray",
+  "owner": { "name": "adukhan99", "url": "https://github.com/adukhan99" },
+  "metadata": {
+    "description": "See what a Python snippet will do before Claude runs it: a capability barcode, a risk band and a live feed.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "pyxray",
+      "source": "./integrations/claude-code",
+      "description": "X-ray every Python snippet Claude runs — capability barcode, risk band, and a live feed you watch in another pane.",
+      "version": "0.1.0",
+      "category": "security",
+      "keywords": ["python", "static-analysis", "observability", "safety"]
+    }
+  ]
+}

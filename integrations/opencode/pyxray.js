@@ -8,7 +8,7 @@
  * Install: integrations/opencode/install.sh
  * By hand: copy to ~/.config/opencode/plugins/ (global) or .opencode/plugins/
  *          (project), and set PYXRAY_HOOK to the absolute path of
- *          integrations/pyxray-hook.
+ *          integrations/claude-code/hooks/pyxray-hook.
  */
 
 import { spawnSync } from "node:child_process";
@@ -26,12 +26,15 @@ const WATCHED = new Set([
   "execute_code",
 ]);
 
+/** Consecutive launcher failures before the plugin stands down. */
+const PATIENCE = 3;
+
 export const PyxrayPlugin = async () => {
-  let broken = false;
+  let failures = 0;
 
   return {
     "tool.execute.before": async (input, output) => {
-      if (broken || process.env.PYXRAY_OFF === "1") return;
+      if (failures >= PATIENCE || process.env.PYXRAY_OFF === "1") return;
       if (!WATCHED.has(String(input.tool || "").toLowerCase())) return;
 
       const payload = JSON.stringify({
@@ -39,6 +42,7 @@ export const PyxrayPlugin = async () => {
         tool_name: input.tool,
         tool_input: output.args ?? {},
         session_id: input.sessionID ?? input.sessionId ?? "",
+        cwd: process.cwd(),
         hook_source: "opencode",
       });
 
@@ -51,15 +55,17 @@ export const PyxrayPlugin = async () => {
         });
       } catch {
         // A plugin that throws here would abort the tool call, and an observer
-        // that breaks the agent's work is worse than no observer. Stand down
-        // for the rest of the session rather than fail on every command.
-        broken = true;
+        // that breaks the agent's work is worse than no observer. After a few
+        // failures in a row, stand down for the rest of the session rather
+        // than fail on every command.
+        failures += 1;
         return;
       }
       if (!result || result.error || result.status !== 0) {
-        broken = true;
+        failures += 1;
         return;
       }
+      failures = 0;
 
       const text = (result.stdout || "").trim();
       if (!text) return; // nothing to say — the common case

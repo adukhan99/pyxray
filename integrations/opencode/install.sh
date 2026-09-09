@@ -6,7 +6,7 @@
 set -e
 
 here=$(cd -- "$(dirname -- "$0")" && pwd)
-hook="$(cd -- "$here/.." && pwd)/pyxray-hook"
+hook="$(cd -- "$here/../claude-code/hooks" && pwd)/pyxray-hook"
 
 if [ "$1" = "--project" ]; then
     target=".opencode/plugins"

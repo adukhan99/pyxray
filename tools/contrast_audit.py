@@ -1,47 +1,56 @@
-import re, pathlib, sys
-src = pathlib.Path("crates/pyxray-render/src/theme.rs").read_text()
+"""Check every colour theme against the contrast the README promises.
 
-def lum(c):
-    def f(v):
-        v /= 255
-        return v/12.92 if v <= 0.03928 else ((v+0.055)/1.055)**2.4
-    r,g,b = c
-    return 0.2126*f(r) + 0.7152*f(g) + 0.0722*f(b)
+Exits 1 when any role or effect colour falls under 3:1 against its theme's
+ground — so `make audit` (and CI) is a check, not a report. Body text is
+held to 4.5:1.
 
-def ratio(a, b):
-    la, lb = lum(a), lum(b)
-    hi, lo = max(la,lb), min(la,lb)
-    return (hi+0.05)/(lo+0.05)
+    python3 tools/contrast_audit.py            # audit, exit 1 on failure
+    python3 tools/contrast_audit.py --verbose  # every figure
+"""
 
-def hex2rgb(h): return (int(h[0:2],16), int(h[2:4],16), int(h[4:6],16))
+from __future__ import annotations
 
-EFFECTS = ["read","write","delete","net","shell","env","eval","print","rand","time","par","calc","exit"]
-blocks = re.findall(r'pub const (\w+): Theme = Theme \{(.*?)\n\};', src, re.S)
-worst_overall = []
-for name, body in blocks:
-    if 'Color::Reset' in body:
-        print(f"{name.lower():<10} 16-colour / no-colour theme — skipped (terminal decides)")
-        continue
-    pal = dict(re.findall(r'(\w+): rgb\(0x([0-9a-f]{6})\)', body))
-    fx = re.findall(r'rgb\(0x([0-9a-f]{6})\)', body.split("effects: [")[1])
-    bg = hex2rgb(pal['bg'])
-    rows = []
-    for key in ("fg","dim","faint","rule","accent","accent_alt","ok","warn","danger"):
-        if key in pal:
-            rows.append((key, ratio(hex2rgb(pal[key]), bg)))
-    for label, h in zip(EFFECTS, fx):
-        rows.append(("fx."+label, ratio(hex2rgb(h), bg)))
-    bad = [(k,v) for k,v in rows if v < 3.0 and k != "rule"]
-    weak = [(k,v) for k,v in rows if 3.0 <= v < 4.5 and k not in ("rule","faint")]
-    body_txt = dict(rows)["fg"]
-    print(f"\n{name.lower():<10} bg #{pal['bg']}  body text {body_txt:.1f}:1")
-    if bad:
-        print("   under 3.0:1 →", ", ".join(f"{k} {v:.1f}" for k,v in sorted(bad, key=lambda x:x[1])))
-    if weak:
-        print("   3.0-4.5:1  →", ", ".join(f"{k} {v:.1f}" for k,v in sorted(weak, key=lambda x:x[1])))
-    if not bad and not weak:
-        print("   all roles at 4.5:1 or better")
-    worst_overall.append((name.lower(), min(v for k,v in rows if k!="rule")))
-print()
-for n,v in sorted(worst_overall, key=lambda x:x[1]):
-    print(f"  {n:<10} worst non-rule role: {v:.1f}:1")
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import wcag  # noqa: E402
+
+MIN_ROLE = 3.0
+MIN_BODY = 4.5
+
+
+def main(argv: list[str]) -> int:
+    verbose = "--verbose" in argv or "-v" in argv
+    failures = 0
+    for theme in wcag.themes():
+        name = theme["id"]
+        result = wcag.audit(theme)
+        if result["worst"] is None:
+            print(f"{name:<10} 16-colour / no-colour theme — the terminal decides")
+            continue
+        rows = {**result["roles"], **{"fx." + k: v for k, v in result["effects"].items()}}
+        bad = {k: v for k, v in rows.items() if v < MIN_ROLE and k not in ("faint",)}
+        body_ok = result["body"] >= MIN_BODY
+        status = "ok " if not bad and body_ok else "BAD"
+        print(f"{status} {name:<10} ground {theme['palette']['bg']}  "
+              f"body {result['body']:.1f}:1  worst {result['worst']:.1f}:1")
+        if bad:
+            failures += 1
+            print("    under 3.0:1 →", ", ".join(f"{k} {v:.1f}" for k, v in sorted(bad.items(), key=lambda x: x[1])))
+        if not body_ok:
+            failures += 1
+            print(f"    body text {result['body']:.1f}:1 is under {MIN_BODY}:1")
+        if verbose:
+            for k, v in sorted(rows.items(), key=lambda x: x[1]):
+                print(f"    {k:<14} {v:5.1f}:1")
+    if failures:
+        print(f"\n{failures} theme(s) fail the contrast floor", file=sys.stderr)
+        return 1
+    print("\nevery colour theme clears 3:1 on every role, 4.5:1 on body text")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

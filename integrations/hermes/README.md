@@ -60,7 +60,7 @@ right escape hatch if you ever need to rule pyxray out.
   ignores it.
 - Commands run through `shlex.split` with `shell=False`, so pipes and
   redirection do not work — wrap anything like that in a script, which is what
-  `integrations/pyxray-hook` already is.
+  `integrations/claude-code/hooks/pyxray-hook` already is.
 - `timeout` is clamped; 5s is far more than pyxray needs (a 3600-line file
   analyses in about 14ms).
 - The installer honours `HERMES_HOME`, which matters if your Hermes tree is

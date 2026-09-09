@@ -1,0 +1,49 @@
+#!/bin/sh
+# pyxray's hook launcher — the one entry point every harness integration
+# points at.
+#
+# Reads a PreToolUse-shaped JSON payload on stdin, hands it to
+# hooks/pyxray_hook.py under whichever Python can import pyxray, and writes a
+# block decision on stdout only if a gate is configured. Otherwise it prints
+# nothing. It always exits 0: a hook that fails would block the tool call,
+# and an observer that breaks somebody's work is worse than no observer.
+#
+# Where pyxray comes from, in order:
+#   $PYXRAY_ROOT      a checkout (its python/ directory is put on the path)
+#   a checkout this plugin directory sits inside (integrations/claude-code)
+#   wherever `pip install pyxray` put it
+#
+# $PYXRAY_PYTHON names the interpreter to use; otherwise python3, python and
+# the Windows `py -3` launcher are tried in turn. PYXRAY_DEBUG=1 keeps stderr.
+
+here=$(cd -- "$(dirname -- "$0")" && pwd)
+payload=$(cat)
+
+if [ "${PYXRAY_DEBUG:-0}" = "1" ]; then
+    err=""
+else
+    err="2>/dev/null"
+fi
+
+try() {
+    # 0 means the hook ran (whatever it decided). Anything else — 75
+    # (EX_TEMPFAIL) from the script when pyxray is not importable, or an
+    # interpreter that could not even start — means try the next one.
+    if printf '%s' "$payload" | eval "\"\$@\" \"$here/pyxray_hook.py\" $err"; then
+        exit 0
+    fi
+    return 1
+}
+
+if [ -n "${PYXRAY_PYTHON:-}" ]; then
+    try "$PYXRAY_PYTHON"
+fi
+for py in python3 python; do
+    if command -v "$py" >/dev/null 2>&1; then
+        try "$py"
+    fi
+done
+if command -v py >/dev/null 2>&1; then
+    try py -3
+fi
+exit 0

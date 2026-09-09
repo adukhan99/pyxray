@@ -1,10 +1,16 @@
 #!/bin/sh
 # Wire pyxray into Claude Code's settings without the plugin system.
-#   integrations/claude-code/install.sh [--global]
+#
+#   integrations/claude-code/install.sh            .claude/settings.json (project)
+#   integrations/claude-code/install.sh --global   ~/.claude/settings.json
+#
+# Prefer the plugin when you can: `/plugin marketplace add adukhan99/pyxray`
+# then `/plugin install pyxray@pyxray` works in Claude Code and in the Claude
+# desktop app alike, and needs no absolute paths.
 set -e
 
 here=$(cd -- "$(dirname -- "$0")" && pwd)
-hook="$(cd -- "$here/.." && pwd)/pyxray-hook"
+hook="$here/hooks/pyxray-hook"
 
 if [ "$1" = "--global" ]; then
     target="$HOME/.claude/settings.json"
@@ -13,10 +19,14 @@ else
 fi
 mkdir -p "$(dirname "$target")"
 
-python3 - "$target" "$hook" <<'PY'
+py=python3
+command -v python3 >/dev/null 2>&1 || py=python
+
+"$py" - "$target" "$hook" <<'PY'
 import json, sys, pathlib
 
 target, hook = pathlib.Path(sys.argv[1]), sys.argv[2]
+command = f'sh "{hook}"'
 settings = {}
 if target.exists():
     try:
@@ -26,19 +36,22 @@ if target.exists():
         raise SystemExit(1)
 
 hooks = settings.setdefault("hooks", {}).setdefault("PreToolUse", [])
-entry = {"matcher": "Bash",
-         "hooks": [{"type": "command", "command": hook, "timeout": 5}]}
-
-for existing in hooks:
-    for h in existing.get("hooks", []):
-        if "pyxray-hook" in str(h.get("command", "")):
-            h["command"] = hook
-            break
+for matcher in ("Bash", "NotebookEdit"):
+    for existing in hooks:
+        if existing.get("matcher") != matcher:
+            continue
+        for h in existing.get("hooks", []):
+            if "pyxray-hook" in str(h.get("command", "")):
+                h["command"] = command
+                h["timeout"] = 5
+                break
+        else:
+            existing.setdefault("hooks", []).append(
+                {"type": "command", "command": command, "timeout": 5})
+        break
     else:
-        continue
-    break
-else:
-    hooks.append(entry)
+        hooks.append({"matcher": matcher,
+                      "hooks": [{"type": "command", "command": command, "timeout": 5}]})
 
 target.write_text(json.dumps(settings, indent=2) + "\n")
 print(f"pyxray: wired into {target}")

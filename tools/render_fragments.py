@@ -6,7 +6,6 @@ Feeds tools/build_lookdev.py. Run from the repo root after `make release`.
 import json
 import os
 import pathlib
-import re
 import subprocess
 import sys
 
@@ -62,40 +61,18 @@ def feed_frag(log: pathlib.Path, theme: str, width: int, height: int) -> str:
 
 
 def contrast_table():
-    """Per-theme WCAG figures, read straight out of the theme definitions."""
-    src = pathlib.Path("crates/pyxray-render/src/theme.rs").read_text()
-
-    def lum(c):
-        def f(v):
-            v /= 255
-            return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
-        return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2])
-
-    def ratio(a, b):
-        la, lb = lum(a), lum(b)
-        hi, lo = max(la, lb), min(la, lb)
-        return (hi + 0.05) / (lo + 0.05)
-
-    def h2r(h):
-        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    """Per-theme WCAG figures, from the binary's own palette listing."""
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import wcag
 
     out = {}
-    for name, body in re.findall(r"pub const (\w+): Theme = Theme \{(.*?)\n\};", src, re.S):
-        blurb = re.search(r'blurb: "(.*?)"', body).group(1)
-        if "Color::Reset" in body:
-            out[name.lower()] = {"blurb": blurb, "body": None, "worst": None}
-            continue
-        pal = dict(re.findall(r"(\w+): rgb\(0x([0-9a-f]{6})\)", body))
-        fx = re.findall(r"rgb\(0x([0-9a-f]{6})\)", body.split("effects: [")[1])
-        bg = h2r(pal["bg"])
-        roles = [ratio(h2r(pal[k]), bg)
-                 for k in ("fg", "dim", "faint", "accent", "accent_alt", "ok", "warn", "danger")]
-        roles += [ratio(h2r(h), bg) for h in fx]
-        out[name.lower()] = {
-            "blurb": blurb,
-            "body": round(ratio(h2r(pal["fg"]), bg), 1),
-            "worst": round(min(roles), 1),
-            "bg": "#" + pal["bg"],
+    for theme in wcag.themes(PYX):
+        result = wcag.audit(theme)
+        out[theme["id"]] = {
+            "blurb": theme["blurb"],
+            "body": None if result["body"] is None else round(result["body"], 1),
+            "worst": None if result["worst"] is None else round(result["worst"], 1),
+            "bg": theme["palette"]["bg"],
         }
     return out
 
