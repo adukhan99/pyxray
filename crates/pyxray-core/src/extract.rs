@@ -841,6 +841,9 @@ pub fn classify_argv(args: &[String]) -> Invocation {
     while i < args.len() {
         let a = args[i].as_str();
         match a {
+            // Informational: the interpreter prints and exits, and never
+            // touches stdin — so neither may we.
+            "-V" | "--version" | "-h" | "--help" | "-?" | "-VV" => return inv,
             "--" => {
                 inv.script = args.get(i + 1).cloned();
                 return inv;
@@ -891,6 +894,7 @@ pub fn classify_argv(args: &[String]) -> Invocation {
                         };
                         return inv;
                     }
+                    'V' | 'h' | '?' => return Invocation::default(),
                     'W' | 'X' | 'Q' => {
                         // Value is the rest of the cluster, or the next word.
                         if rest[pos + 1..].is_empty() {
@@ -1156,6 +1160,8 @@ mod tests {
         assert_eq!(inv("-3.12 -c code").code.as_deref(), Some("code"));
         assert_eq!(inv("-Wignore s.py").script.as_deref(), Some("s.py"));
         assert_eq!(inv("-- -c").script.as_deref(), Some("-c"));
+        assert!(!inv("--version").stdin);
+        assert!(!inv("-V").stdin && inv("-V").script.is_none());
     }
 
     #[test]

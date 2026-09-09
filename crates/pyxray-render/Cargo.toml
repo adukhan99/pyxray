@@ -16,4 +16,5 @@ ratatui = { version = "0.30", default-features = false }
 unicode-width = "0.2"
 
 [dev-dependencies]
+insta.workspace = true
 unicode-width = "0.2"

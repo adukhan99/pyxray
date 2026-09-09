@@ -1,0 +1,264 @@
+---
+source: crates/pyxray-core/tests/snapshots.rs
+expression: report
+---
+{
+  "schema": 1,
+  "meta": {
+    "name": "agent-minute_02-config.py",
+    "bytes": 123,
+    "parsed": true,
+    "synopsis": "reads pathlib.Path(\"config.json\") → prints results",
+    "headline": [
+      "reads pathlib.Path(\"config.json\")",
+      "prints results"
+    ]
+  },
+  "spine": {
+    "id": 0,
+    "kind": "module",
+    "label": "agent-minute_02-config.py",
+    "detail": null,
+    "line": 1,
+    "end_line": 5,
+    "depth": 0,
+    "own_effects": 0,
+    "effects": 129,
+    "severity": "info",
+    "weight": 5,
+    "children": [
+      {
+        "id": 1,
+        "kind": "import",
+        "label": "import json",
+        "detail": null,
+        "line": 1,
+        "end_line": 1,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 2,
+        "kind": "import",
+        "label": "import pathlib",
+        "detail": null,
+        "line": 2,
+        "end_line": 2,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 3,
+        "kind": "assign",
+        "label": "cfg = json.loads(pathlib.Path(\"config.json\").read_text())",
+        "detail": null,
+        "line": 4,
+        "end_line": 4,
+        "depth": 0,
+        "own_effects": 1,
+        "effects": 1,
+        "severity": "info",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 4,
+        "kind": "call",
+        "label": "print(cfg[\"dataset\"], cfg[\"cutoff\"])",
+        "detail": null,
+        "line": 5,
+        "end_line": 5,
+        "depth": 0,
+        "own_effects": 128,
+        "effects": 128,
+        "severity": "info",
+        "weight": 1,
+        "children": []
+      }
+    ]
+  },
+  "imports": [
+    {
+      "module": "json",
+      "names": [],
+      "alias": null,
+      "line": 1,
+      "third_party": false,
+      "deferred": false
+    },
+    {
+      "module": "pathlib",
+      "names": [],
+      "alias": null,
+      "line": 2,
+      "third_party": false,
+      "deferred": false
+    }
+  ],
+  "effects": [
+    {
+      "effect": "fs_read",
+      "severity": "info",
+      "verb": "read",
+      "symbol": "<path>.read_text",
+      "target": "pathlib.Path(\"config.json\")",
+      "line": 4,
+      "col": 18,
+      "snippet": "pathlib.Path(\"config.json\").read_text()",
+      "note": null
+    },
+    {
+      "effect": "stdout",
+      "severity": "info",
+      "verb": "print",
+      "symbol": "print",
+      "target": "cfg[\"dataset\"]",
+      "line": 5,
+      "col": 1,
+      "snippet": "print(cfg[\"dataset\"], cfg[\"cutoff\"])",
+      "note": null
+    }
+  ],
+  "symbols": [
+    {
+      "canonical": "print",
+      "display": "print",
+      "group": "<builtins>",
+      "origin": "builtin",
+      "count": 1,
+      "lines": [
+        5
+      ],
+      "effects": 128
+    },
+    {
+      "canonical": "json.loads",
+      "display": "json.loads",
+      "group": "json",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        4
+      ],
+      "effects": 0
+    },
+    {
+      "canonical": "<path>.read_text",
+      "display": "pathlib.Path(\"config.json\").rea…",
+      "group": "path",
+      "origin": "method",
+      "count": 1,
+      "lines": [
+        4
+      ],
+      "effects": 1
+    },
+    {
+      "canonical": "pathlib.Path",
+      "display": "pathlib.Path",
+      "group": "pathlib",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        4
+      ],
+      "effects": 0
+    }
+  ],
+  "bindings": [
+    {
+      "name": "cfg",
+      "kind": "assign",
+      "value": "map",
+      "origin": "json.loads(pathlib.Path(…).read_te…)",
+      "scope": "<module>",
+      "line": 4,
+      "depth": 0,
+      "reads": 2,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    }
+  ],
+  "metrics": {
+    "lines_total": 5,
+    "lines_code": 4,
+    "lines_comment": 0,
+    "lines_blank": 1,
+    "statements": 4,
+    "max_depth": 0,
+    "complexity": 1,
+    "functions": 0,
+    "classes": 0,
+    "async_defs": 0,
+    "calls": 4,
+    "imports": 2,
+    "loops": 0,
+    "branches": 0,
+    "handlers": 0,
+    "risk": 2
+  },
+  "texture": [
+    {
+      "indent": 0,
+      "width": 11,
+      "blank": false,
+      "comment": false,
+      "kind": "import",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 14,
+      "blank": false,
+      "comment": false,
+      "kind": "import",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 0,
+      "blank": true,
+      "comment": false,
+      "kind": null,
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 57,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 1,
+      "severity": "info"
+    },
+    {
+      "indent": 0,
+      "width": 36,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 128,
+      "severity": "info"
+    }
+  ],
+  "diagnostics": [],
+  "source": [
+    "import json",
+    "import pathlib",
+    "",
+    "cfg = json.loads(pathlib.Path(\"config.json\").read_text())",
+    "print(cfg[\"dataset\"], cfg[\"cutoff\"])"
+  ]
+}

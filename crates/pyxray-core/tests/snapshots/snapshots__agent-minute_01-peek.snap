@@ -1,0 +1,152 @@
+---
+source: crates/pyxray-core/tests/snapshots.rs
+expression: report
+---
+{
+  "schema": 1,
+  "meta": {
+    "name": "agent-minute_01-peek.py",
+    "bytes": 55,
+    "parsed": true,
+    "synopsis": "evaluates code at runtime → reads results → prints results",
+    "headline": [
+      "evaluates code at runtime",
+      "reads results",
+      "prints results"
+    ]
+  },
+  "spine": {
+    "id": 0,
+    "kind": "module",
+    "label": "agent-minute_01-peek.py",
+    "detail": null,
+    "line": 1,
+    "end_line": 1,
+    "depth": 0,
+    "own_effects": 0,
+    "effects": 193,
+    "severity": "caution",
+    "weight": 2,
+    "children": [
+      {
+        "id": 1,
+        "kind": "call",
+        "label": "print(sorted(__import__(\"os\").listdir(\"results\"))[:5])",
+        "detail": null,
+        "line": 1,
+        "end_line": 1,
+        "depth": 0,
+        "own_effects": 193,
+        "effects": 193,
+        "severity": "caution",
+        "weight": 1,
+        "children": []
+      }
+    ]
+  },
+  "imports": [],
+  "effects": [
+    {
+      "effect": "stdout",
+      "severity": "info",
+      "verb": "print",
+      "symbol": "print",
+      "target": "sorted(__import__(…).listdir…)[…]",
+      "line": 1,
+      "col": 1,
+      "snippet": "print(sorted(__import__(\"os\").listdir(\"results\"))[:5])",
+      "note": null
+    },
+    {
+      "effect": "fs_read",
+      "severity": "info",
+      "verb": "list",
+      "symbol": "os.listdir",
+      "target": "results",
+      "line": 1,
+      "col": 14,
+      "snippet": "__import__(\"os\").listdir(\"results\")",
+      "note": null
+    },
+    {
+      "effect": "dynamic",
+      "severity": "caution",
+      "verb": "import",
+      "symbol": "__import__",
+      "target": "os",
+      "line": 1,
+      "col": 14,
+      "snippet": "__import__(\"os\")",
+      "note": "imports a module chosen at runtime"
+    }
+  ],
+  "symbols": [
+    {
+      "canonical": "__import__",
+      "display": "__import__",
+      "group": "<builtins>",
+      "origin": "builtin",
+      "count": 1,
+      "lines": [
+        1
+      ],
+      "effects": 64
+    },
+    {
+      "canonical": "print",
+      "display": "print",
+      "group": "<builtins>",
+      "origin": "builtin",
+      "count": 1,
+      "lines": [
+        1
+      ],
+      "effects": 128
+    },
+    {
+      "canonical": "os.listdir",
+      "display": "__import__(\"os\").listdir",
+      "group": "os",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        1
+      ],
+      "effects": 1
+    }
+  ],
+  "bindings": [],
+  "metrics": {
+    "lines_total": 1,
+    "lines_code": 1,
+    "lines_comment": 0,
+    "lines_blank": 0,
+    "statements": 1,
+    "max_depth": 0,
+    "complexity": 1,
+    "functions": 0,
+    "classes": 0,
+    "async_defs": 0,
+    "calls": 4,
+    "imports": 0,
+    "loops": 0,
+    "branches": 0,
+    "handlers": 0,
+    "risk": 32
+  },
+  "texture": [
+    {
+      "indent": 0,
+      "width": 54,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 193,
+      "severity": "caution"
+    }
+  ],
+  "diagnostics": [],
+  "source": [
+    "print(sorted(__import__(\"os\").listdir(\"results\"))[:5])"
+  ]
+}

