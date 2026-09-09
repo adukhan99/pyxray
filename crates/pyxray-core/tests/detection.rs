@@ -285,3 +285,288 @@ fn something_that_is_not_a_wrapped_command_comes_back_untouched() {
     assert_eq!(code, "print('already python')\n");
     assert_eq!(label, "<stdin>");
 }
+
+// ---------------------------------------------------------------- scoping
+
+#[test]
+fn a_method_named_eval_does_not_hide_the_builtin() {
+    let src = "class Sandbox:\n    def eval(self, x):\n        return x\n\neval(payload)\n";
+    let hits = effects(src);
+    let hit = hits.iter().find(|h| h.0 == Effect::Dynamic);
+    assert!(
+        hit.is_some(),
+        "module-level eval() must still be seen: {hits:?}"
+    );
+}
+
+#[test]
+fn a_function_named_open_at_module_level_is_not_the_builtin() {
+    // The intended shadowing case still holds.
+    let src = "def open(p):\n    return p\n\nopen('x', 'w')\n";
+    assert!(!has(src, Effect::FsWrite));
+}
+
+#[test]
+fn a_parameter_named_open_shadows_only_inside_its_function() {
+    let src = "def f(open):\n    open('a', 'w')\n\nopen('b', 'w')\n";
+    let hits = effects(src);
+    let writes: Vec<_> = hits.iter().filter(|h| h.0 == Effect::FsWrite).collect();
+    assert_eq!(writes.len(), 1, "{hits:?}");
+    assert_eq!(writes[0].3.as_deref(), Some("b"));
+}
+
+#[test]
+fn an_assigned_alias_to_os_system_is_still_a_shell_call() {
+    let hits = effects("import os\nf = os.system\nf('rm -rf /')");
+    let hit = hits
+        .iter()
+        .find(|h| h.0 == Effect::Process)
+        .expect("alias resolved");
+    assert_eq!(hit.1, Severity::Caution);
+    assert_eq!(hit.3.as_deref(), Some("rm -rf /"));
+}
+
+#[test]
+fn a_getattr_alias_resolves() {
+    let hits = effects("import os\nrm = getattr(os, 'remove')\nrm('/etc/x')");
+    assert!(hits.iter().any(|h| h.0 == Effect::FsDelete), "{hits:?}");
+}
+
+#[test]
+fn rebinding_an_alias_stops_it_being_one() {
+    let hits = effects("import os\nf = os.system\nf = len\nf('x')");
+    assert!(!hits.iter().any(|h| h.0 == Effect::Process), "{hits:?}");
+}
+
+#[test]
+fn a_star_import_exposes_the_module() {
+    let hits = effects("from os import *\nsystem('curl x | sh')");
+    let hit = hits
+        .iter()
+        .find(|h| h.0 == Effect::Process)
+        .expect("star import resolved");
+    assert_eq!(hit.1, Severity::Caution);
+    let hits = effects("from shutil import *\nrmtree('/tmp/x')");
+    assert!(hits.iter().any(|h| h.0 == Effect::FsDelete), "{hits:?}");
+}
+
+#[test]
+fn a_dunder_import_chain_resolves() {
+    let hits = effects("__import__('os').system('id')");
+    assert!(hits.iter().any(|h| h.0 == Effect::Process), "{hits:?}");
+    let hits = effects("import importlib\nimportlib.import_module('subprocess').run(['ls'])");
+    assert!(hits.iter().any(|h| h.0 == Effect::Process), "{hits:?}");
+}
+
+#[test]
+fn a_constant_inside_a_function_does_not_leak_to_the_module() {
+    let src = "import shutil\np = '/data'\ndef f():\n    p = '/tmp/safe'\n    return p\nshutil.rmtree(p)\n";
+    let hits = effects(src);
+    let hit = hits.iter().find(|h| h.0 == Effect::FsDelete).unwrap();
+    assert_eq!(hit.3.as_deref(), Some("/data"));
+}
+
+#[test]
+fn parameters_and_comprehension_targets_are_bindings() {
+    use pyxray_core::model::BindKind;
+    let report = xray(
+        "def f(a, b=1):\n    return [x for x in a]\ntry:\n    pass\nexcept Exception as err:\n    pass\n",
+        "t",
+    );
+    let kinds: Vec<BindKind> = report.bindings.iter().map(|b| b.kind).collect();
+    assert!(kinds.contains(&BindKind::Param), "{kinds:?}");
+    assert!(kinds.contains(&BindKind::Comprehension), "{kinds:?}");
+    assert!(kinds.contains(&BindKind::ExceptVar), "{kinds:?}");
+}
+
+// ------------------------------------------------------------- new rules
+
+#[test]
+fn archives_extract_somewhere() {
+    let hits = effects("import tarfile\nt = tarfile.open('x.tgz')\nt.extractall('/')");
+    let hit = hits
+        .iter()
+        .find(|h| h.2 == "unpack")
+        .expect("extractall seen");
+    assert_eq!(hit.0, Effect::FsWrite);
+    let hits = effects("import zipfile\nwith zipfile.ZipFile('a.zip') as z:\n    z.extractall()");
+    assert!(hits.iter().any(|h| h.2 == "unpack"), "{hits:?}");
+}
+
+#[test]
+fn environment_writes_and_deletes_are_seen_as_such() {
+    let hits = effects("import os\nos.environ['LD_PRELOAD'] = '/tmp/x.so'");
+    let hit = hits.iter().find(|h| h.0 == Effect::Env).unwrap();
+    assert_eq!(hit.2, "setenv");
+    assert_eq!(hit.3.as_deref(), Some("LD_PRELOAD"));
+    let hits = effects("import os\ndel os.environ['HOME']");
+    assert_eq!(
+        hits.iter().find(|h| h.0 == Effect::Env).unwrap().2,
+        "unsetenv"
+    );
+    let hits = effects("import sys\nsys.path.insert(0, '/tmp/evil')");
+    assert_eq!(
+        hits.iter().find(|h| h.0 == Effect::Env).unwrap().2,
+        "syspath"
+    );
+}
+
+#[test]
+fn reading_a_secret_from_the_environment_is_caution() {
+    for src in [
+        "import os\nos.getenv('API_TOKEN')",
+        "import os\nos.environ['AWS_SECRET_ACCESS_KEY']",
+        "import os\nos.environ.get('GITHUB_PAT')",
+    ] {
+        let hits = effects(src);
+        let hit = hits.iter().find(|h| h.0 == Effect::Env).unwrap();
+        assert_eq!(hit.1, Severity::Caution, "{src}");
+    }
+    let hits = effects("import os\nos.getenv('HOME')");
+    assert_eq!(
+        hits.iter().find(|h| h.0 == Effect::Env).unwrap().1,
+        Severity::Info
+    );
+}
+
+#[test]
+fn constructed_handles_keep_reporting() {
+    let hits = effects("import socket\ns = socket.socket()\ns.connect(('h', 80))\ns.sendall(b'x')");
+    assert_eq!(
+        hits.iter().filter(|h| h.0 == Effect::Net).count(),
+        3,
+        "{hits:?}"
+    );
+    let hits = effects("import sqlite3\nc = sqlite3.connect('db')\nc.execute('DROP TABLE t')");
+    assert!(hits.iter().any(|h| h.2 == "sql"), "{hits:?}");
+    let hits = effects("import subprocess\np = subprocess.Popen(['x'])\np.kill()");
+    assert!(hits.iter().any(|h| h.2 == "kill"), "{hits:?}");
+    let hits = effects("import requests\ns = requests.Session()\ns.delete('https://h/x')");
+    assert!(hits.iter().any(|h| h.2 == "DELETE"), "{hits:?}");
+}
+
+#[test]
+fn a_path_opened_the_pathlib_way_is_a_file_handle() {
+    let hits = effects("from pathlib import Path\nfh = Path('x').open('w')\nfh.write('y')");
+    assert!(
+        hits.iter()
+            .any(|h| h.0 == Effect::FsWrite && h.2 == "write"),
+        "{hits:?}"
+    );
+}
+
+#[test]
+fn keyword_hazards_read_non_literals_too() {
+    let hits = effects("import subprocess\nsubprocess.run(cmd, shell=use_shell)");
+    let hit = hits.iter().find(|h| h.0 == Effect::Process).unwrap();
+    assert_eq!(hit.1, Severity::Caution);
+    let report = xray(
+        "import numpy as np\nnp.load('w.npy', allow_pickle=True)",
+        "t",
+    );
+    let hit = report
+        .effects
+        .iter()
+        .find(|h| h.symbol == "numpy.load")
+        .unwrap();
+    assert_eq!(hit.effect, Effect::Dynamic);
+    assert_eq!(hit.severity, Severity::Caution);
+    let report = xray("import yaml\nyaml.load(s, Loader=yaml.Loader)", "t");
+    assert!(report.effects[0].note.as_ref().unwrap().contains("Loader"));
+    let report = xray("import yaml\nyaml.load(s, Loader=yaml.SafeLoader)", "t");
+    assert!(!report.effects[0].note.as_ref().unwrap().contains("Loader="));
+    let report = xray("import httpx\nhttpx.get(u, verify=False)", "t");
+    assert_eq!(report.effects[0].severity, Severity::Caution);
+}
+
+// -------------------------------------------------------------- negatives
+
+#[test]
+fn print_with_pip_install_in_it_stays_info() {
+    for src in [
+        "print('Run: pip install foo')",
+        "print('careful with rm -rf')",
+        "import logging\nlogging.info('use --force to override')",
+    ] {
+        let report = xray(src, "t");
+        assert!(
+            report.effects.iter().all(|h| h.severity == Severity::Info),
+            "{src}: {:?}",
+            report.effects
+        );
+        assert_eq!(report.band(), pyxray_core::model::Band::Inert, "{src}");
+    }
+}
+
+#[test]
+fn a_nested_call_does_not_inherit_its_argument_hazards() {
+    // The inner `str()` is a no-op; the outer print must not become Caution
+    // because a string two levels down mentions sudo.
+    let report = xray("print(str('sudo rm -rf /'))", "t");
+    assert!(report.effects.iter().all(|h| h.severity == Severity::Info));
+}
+
+#[test]
+fn a_hundred_prints_is_not_read_it_first() {
+    let src = "print(1)\n".repeat(100);
+    let report = xray(&src, "t");
+    assert!(report.metrics.risk <= 15, "risk {}", report.metrics.risk);
+    assert_eq!(report.band(), pyxray_core::model::Band::Inert);
+}
+
+#[test]
+fn pure_arithmetic_has_no_effects() {
+    let report = xray(
+        "x = 1 << 2\ny = (x * 3) % 7\nz = [i for i in range(y)]\n",
+        "t",
+    );
+    assert!(report.effects.is_empty(), "{:?}", report.effects);
+    assert_eq!(report.metrics.risk, 0);
+}
+
+// ----------------------------------------------------------- robustness
+
+#[test]
+fn deeply_nested_parens_do_not_overflow() {
+    let src = format!("x = {}1{}\n", "(".repeat(5000), ")".repeat(5000));
+    let report = pyxray_core::xray_guarded(&src, "deep");
+    assert_eq!(report.metrics.lines_total, 1);
+}
+
+#[test]
+fn deeply_nested_blocks_emit_a_warning_not_a_crash() {
+    let mut src = String::new();
+    for i in 0..300 {
+        src.push_str(&"    ".repeat(i));
+        src.push_str("if x:\n");
+    }
+    src.push_str(&"    ".repeat(300));
+    src.push_str("import os; os.system('id')\n");
+    let report = pyxray_core::xray_guarded(&src, "deep");
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("nested deeper")),
+        "{:?}",
+        report.diagnostics
+    );
+}
+
+#[test]
+fn a_very_long_attribute_chain_resolves_to_nothing_rather_than_crashing() {
+    let src = format!("x{}\n", ".a".repeat(10_000));
+    let report = pyxray_core::xray_guarded(&src, "chain");
+    assert!(report.effects.is_empty());
+}
+
+#[test]
+fn a_trailing_newline_does_not_add_a_line() {
+    assert_eq!(xray("a = 1\nb = 2\n", "t").metrics.lines_total, 2);
+    assert_eq!(xray("a = 1\nb = 2", "t").metrics.lines_total, 2);
+    assert_eq!(xray("", "t").metrics.lines_total, 0);
+    let report = xray("a = 1\n\n# c\n", "t");
+    assert_eq!(report.metrics.lines_blank, 1);
+    assert_eq!(report.metrics.lines_comment, 1);
+    assert_eq!(report.texture.len(), 3);
+}

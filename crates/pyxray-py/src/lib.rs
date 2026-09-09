@@ -6,11 +6,11 @@
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use pyxray_render::export::{self, Format};
 use pyxray_render::layout::{self, Layout};
 use pyxray_render::panels::{Icons, Opts};
 use pyxray_render::theme::{self, THEMES};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 /// Run a binding body with a panic fence. `xray_guarded` already contains the
 /// analyser; this catches anything in rendering or serialisation, so the host

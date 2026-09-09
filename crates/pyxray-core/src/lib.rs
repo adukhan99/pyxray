@@ -89,7 +89,7 @@ pub fn xray(source: &str, name: &str) -> Report {
         label: name.to_string(),
         detail: None,
         line: 1,
-        end_line: src.line_count(),
+        end_line: src.line_count().max(1),
         depth: 0,
         own_effects: EffectMask::default(),
         effects: EffectMask::default(),
@@ -152,9 +152,6 @@ pub fn xray(source: &str, name: &str) -> Report {
 
     let texture = digest::texture(&src, &spine, &hits);
     let (synopsis, headline) = if source.trim().is_empty() {
-        // `LineIndex` counts an empty string as one line, which would have the
-        // header claim there is something here.
-        metrics.lines_total = 0;
         metrics.lines_code = 0;
         ("nothing to run".to_string(), Vec::new())
     } else {

@@ -346,6 +346,8 @@ pub enum ValueKind {
     Module,
     Class,
     None,
+    /// A zip or tar handle; extracting it writes wherever its members say.
+    Archive,
 }
 
 impl ValueKind {
@@ -371,6 +373,7 @@ impl ValueKind {
             ValueKind::Module => "mod",
             ValueKind::Class => "class",
             ValueKind::None => "none",
+            ValueKind::Archive => "archive",
         }
     }
 }
@@ -807,7 +810,10 @@ mod tests {
     fn ids_round_trip_in_both_spellings() {
         for e in Effect::ALL {
             assert_eq!(Effect::from_id(e.id()), Some(e));
-            assert_eq!(serde_json::to_string(&e).unwrap(), format!("\"{}\"", e.id()));
+            assert_eq!(
+                serde_json::to_string(&e).unwrap(),
+                format!("\"{}\"", e.id())
+            );
         }
         assert_eq!(Effect::from_id("fs.read"), Some(Effect::FsRead));
         assert_eq!(Effect::from_id("nope"), None);

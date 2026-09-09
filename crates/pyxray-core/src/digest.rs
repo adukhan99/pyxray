@@ -192,6 +192,10 @@ pub fn synopsis(
     (text, parts)
 }
 
+/// The most that Info-level hits can add, together. Below the "routine"
+/// floor (15), so no amount of printing can climb out of "inert" on its own.
+const INFO_CAP: u32 = 12;
+
 /// 0..100. Driven by severity, not volume: one `shutil.rmtree` should read
 /// louder than fifty `print`s.
 ///
@@ -203,17 +207,21 @@ pub fn synopsis(
 /// telling a reader two different stories.
 pub fn risk(hits: &[EffectHit]) -> u8 {
     let mut score = 0u32;
+    let mut infos = 0u32;
     let mut caution_kinds: BTreeSet<Effect> = BTreeSet::new();
     for hit in hits {
-        score += match hit.severity {
-            Severity::Caution => 30,
-            Severity::Notable => 10,
-            Severity::Info => 1,
-        };
-        if hit.severity == Severity::Caution {
-            caution_kinds.insert(hit.effect);
+        match hit.severity {
+            Severity::Caution => {
+                score += 30;
+                caution_kinds.insert(hit.effect);
+            }
+            Severity::Notable => score += 10,
+            Severity::Info => infos += 1,
         }
     }
+    // Volume of ordinary work is capped: a hundred prints is still a script
+    // that prints, and must never *look* like one that deletes.
+    score += infos.min(INFO_CAP);
     // Distinct dangerous capabilities compound: fetching *and* executing is
     // worse than doing either twice.
     score += (caution_kinds.len().saturating_sub(1) as u32) * 12;

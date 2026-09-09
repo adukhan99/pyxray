@@ -221,7 +221,11 @@ mod tests {
         let old = r#"{"ts":1,"name":"x","source":"shim","lines":1,"risk":0,"band":"inert","mask":0,"worst":null,"synopsis":"prints results","notes":[],"blocked":false}"#;
         let event = parse_line(old).expect("pre-versioning line parses");
         assert_eq!(event.schema, 0);
-        let newer = old.replacen("{", &format!("{{\"schema\":{},", crate::model::SCHEMA + 1), 1);
+        let newer = old.replacen(
+            "{",
+            &format!("{{\"schema\":{},", crate::model::SCHEMA + 1),
+            1,
+        );
         assert!(parse_line(&newer).is_none(), "{newer}");
         assert!(parse_line("{\"ts\":").is_none());
     }
