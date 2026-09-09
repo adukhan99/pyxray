@@ -2,6 +2,7 @@
 //! part worth spending effort on, and it keeps the binary's dependency list
 //! down to what actually draws pixels.
 
+use pyxray_core::model::Band;
 use pyxray_render::export::{self, Format};
 use pyxray_render::layout::{self, Layout};
 use pyxray_render::panels::{Icons, Opts};
@@ -15,11 +16,14 @@ USAGE
     cat script.py | pyx
     pyx --tui script.py
     pyx watch                 live feed of everything analysed elsewhere
+    pyx extract               read a shell command on stdin, print the Python in it
 
 INPUT
-    FILE                Python file to read. Omit to read stdin.
-    --stdin-is-command  Treat stdin as a shell command and pull the Python out
-                        of it (python3 <<'EOF' … EOF, python -c '…').
+    FILE                Python file to read. Omit (or use -) to read stdin.
+    --name NAME         what to call stdin input in the report (default: <stdin>)
+    --stdin-is-command  treat stdin as a shell command and pull the Python out
+                        of it (python3 script.py, python3 <<'EOF' … EOF,
+                        python -c '…', cd x && python3 …, bash -c '…')
 
 LOOK
     -t, --theme ID      blueprint | neon | paper | carbon | amber | ansi | mono
@@ -34,6 +38,10 @@ LOOK
 
 OUTPUT
     -f, --format FMT    ansi | text | html | svg | json   (default: ansi)
+        --json          the whole report as JSON; same as -f json
+        --color WHEN    auto | always | never          (default: auto)
+                        auto colours a terminal and not a pipe or file, and
+                        honours NO_COLOR and CLICOLOR_FORCE
         --fragment      with --format html, emit the bare <pre> for embedding
     -w, --width N       columns (default: terminal width, else 100)
         --height N      rows; only meaningful for a fixed-size render
@@ -41,11 +49,15 @@ OUTPUT
         --tui           interactive viewer; cycle themes and layouts live
         --contact-sheet PATH
                         render every theme and layout to one HTML page
+        --check N       exit 3 when the risk score is above N, after drawing.
+                        For scripts and CI; nothing is run.
 
 FEED
-        --emit [PATH]   append this analysis to the feed log as one JSON line
-                        (default: $PYXRAY_LOG, else $XDG_RUNTIME_DIR/pyxray)
+        --emit          append this analysis to the feed log as one JSON line
+        --feed PATH     which log (default: $PYXRAY_LOG, else the per-user
+                        runtime directory; `pyx --list` prints it)
         --source NAME   label the event with where it came from
+        --print-event   print the event JSON as the first line of output
         --quiet         emit only; draw nothing
 
     pyx watch [PATH]    follow the log. Keys: q quit, p pause, f filter,
@@ -54,8 +66,16 @@ FEED
         --replay        start from the whole log, not just what arrives next
         --floor BAND    hide below inert | routine | check | read
 
+EXTRACT
+    pyx extract         read a shell command on stdin; print a JSON array of
+                        {source, label, path, segment} for every Python in it
+        --cwd DIR       resolve script paths against DIR
+        --no-files      report script paths without reading them
+        --argv -- ARGS  instead: classify an interpreter's own arguments
+                        ({code, module, script, stdin})
+
 RUN
-        --exec          run the snippet with python3 after showing the X-ray
+        --exec          run the snippet with python after showing the X-ray
         --confirm       with --exec, ask before running
         --gate N        with --exec, refuse to run above this risk score.
                         Off unless you set it: pyxray describes by default and
@@ -64,25 +84,41 @@ RUN
                         default and is accepted explicitly.
 
 OTHER
-        --list          list the available themes and layouts
+        --list          list themes, layouts, formats and the feed path
+                        (--format json for a machine-readable version)
     -h, --help          this text
     -V, --version       version
+
+EXIT CODES
+    0 fine · 2 usage or I/O error · 3 refused by --gate, --confirm or --check
+    · with --exec, the snippet's own exit code
 ";
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
     Xray,
     Watch,
+    Extract,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ColorMode {
+    Auto,
+    Always,
+    Never,
+}
+
+#[derive(Debug)]
 pub struct Args {
     pub mode: Mode,
     pub file: Option<String>,
+    pub name: Option<String>,
     pub stdin_is_command: bool,
     pub theme: Theme,
     pub layout: Layout,
     pub format: Format,
     pub json: bool,
+    pub color: ColorMode,
     pub fragment: bool,
     pub width: Option<u16>,
     pub height: Option<u16>,
@@ -90,16 +126,23 @@ pub struct Args {
     pub tui: bool,
     pub contact_sheet: Option<String>,
     pub list: bool,
+    pub check: Option<u8>,
     pub opts: Opts,
     pub exec: bool,
     pub confirm: bool,
     pub gate: Option<u8>,
-    pub emit: Option<Option<String>>,
+    pub emit: bool,
+    pub feed: Option<String>,
     pub source: String,
+    pub print_event: bool,
     pub quiet: bool,
     pub replay: bool,
     pub dump: bool,
-    pub floor: pyxray_core::model::Band,
+    pub floor: Band,
+    pub cwd: Option<String>,
+    pub read_files: bool,
+    /// `pyx extract --argv -- …`: the interpreter arguments to classify.
+    pub argv: Option<Vec<String>>,
 }
 
 impl Default for Args {
@@ -107,11 +150,13 @@ impl Default for Args {
         Args {
             mode: Mode::Xray,
             file: None,
+            name: None,
             stdin_is_command: false,
             theme: theme::default_theme(),
             layout: Layout::Dashboard,
             format: Format::Ansi,
             json: false,
+            color: ColorMode::Auto,
             fragment: false,
             width: None,
             height: None,
@@ -119,16 +164,22 @@ impl Default for Args {
             tui: false,
             contact_sheet: None,
             list: false,
+            check: None,
             opts: Opts::default(),
             exec: false,
             confirm: false,
             gate: None,
-            emit: None,
+            emit: false,
+            feed: None,
             source: "cli".to_string(),
+            print_event: false,
             quiet: false,
             replay: false,
             dump: false,
-            floor: pyxray_core::model::Band::Inert,
+            floor: Band::Inert,
+            cwd: None,
+            read_files: true,
+            argv: None,
         }
     }
 }
@@ -139,24 +190,78 @@ pub enum Parsed {
     Version,
 }
 
+/// Which modes a flag makes sense in. Anything else is a mistake worth
+/// saying out loud rather than a flag to ignore quietly.
+fn allowed(flag: &str) -> &'static [Mode] {
+    use Mode::*;
+    match flag {
+        "--dump" | "--replay" | "--floor" => &[Watch],
+        "--cwd" | "--no-files" | "--argv" => &[Extract],
+        "--exec" | "--confirm" | "--gate" | "--emit" | "--feed" | "--source" | "--print-event"
+        | "--quiet" | "--tui" | "--contact-sheet" | "--check" | "--json" | "--stdin-is-command"
+        | "--name" | "--code" | "--no-gutter" | "--depth" | "-l" | "--layout" => &[Xray],
+        _ => &[Xray, Watch, Extract],
+    }
+}
+
 pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Parsed, String> {
     let mut a = Args::default();
     let mut explicit_layout = false;
     let mut first = true;
+    let mut seen: Vec<&'static str> = Vec::new();
     while let Some(arg) = it.next() {
         if first {
             first = false;
-            if arg == "watch" {
-                a.mode = Mode::Watch;
-                continue;
+            match arg.as_str() {
+                "watch" => {
+                    a.mode = Mode::Watch;
+                    continue;
+                }
+                "extract" => {
+                    a.mode = Mode::Extract;
+                    continue;
+                }
+                _ => {}
             }
         }
         let mut value = |name: &str| -> Result<String, String> {
             it.next().ok_or_else(|| format!("{name} needs a value"))
         };
+        // Remember the canonical spelling of every flag, for the mode check.
+        let flag: &'static str = match arg.as_str() {
+            "-t" => "--theme",
+            "-l" => "--layout",
+            "-i" => "--icons",
+            "-f" => "--format",
+            "-w" => "--width",
+            "-o" => "--out",
+            s if s.starts_with("--emit=") => "--emit",
+            s if s.starts_with("--") => {
+                // Leak-free: the set of flags is fixed, so map to the static.
+                canonical(s).unwrap_or("--unknown")
+            }
+            _ => "",
+        };
+        if !flag.is_empty() && flag != "--unknown" {
+            seen.push(flag);
+        }
         match arg.as_str() {
             "-h" | "--help" => return Ok(Parsed::Help),
             "-V" | "--version" => return Ok(Parsed::Version),
+            "--" => {
+                if a.argv.is_some() {
+                    a.argv = Some(it.collect());
+                    break;
+                }
+                // Everything after `--` is the file, even one called `-t`.
+                if let Some(f) = it.next() {
+                    set_file(&mut a, f)?;
+                }
+                if it.next().is_some() {
+                    return Err("only one FILE can be analysed at a time".into());
+                }
+                break;
+            }
             "--list" => a.list = true,
             "--tui" => a.tui = true,
             "--code" => a.opts.code = true,
@@ -165,25 +270,41 @@ pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Parsed, String> {
             "--quiet" => a.quiet = true,
             "--replay" => a.replay = true,
             "--dump" => a.dump = true,
-            "--emit" => a.emit = Some(None),
+            "--emit" => a.emit = true,
             _ if arg.starts_with("--emit=") => {
-                a.emit = Some(Some(arg["--emit=".len()..].to_string()))
+                a.emit = true;
+                a.feed = Some(arg["--emit=".len()..].to_string());
             }
+            "--feed" => {
+                a.emit = true;
+                a.feed = Some(value("--feed")?);
+            }
+            "--print-event" => a.print_event = true,
             "--source" => a.source = value("--source")?,
+            "--name" => a.name = Some(value("--name")?),
+            "--cwd" => a.cwd = Some(value("--cwd")?),
+            "--no-files" => a.read_files = false,
+            "--argv" => a.argv = Some(Vec::new()),
             "--floor" => {
                 a.floor = match value("--floor")?.as_str() {
-                    "inert" => pyxray_core::model::Band::Inert,
-                    "routine" => pyxray_core::model::Band::Routine,
-                    "check" => pyxray_core::model::Band::Check,
-                    "read" => pyxray_core::model::Band::Read,
+                    "inert" => Band::Inert,
+                    "routine" => Band::Routine,
+                    "check" => Band::Check,
+                    "read" => Band::Read,
                     other => return Err(format!("unknown band {other:?}")),
                 }
             }
             "--fragment" => a.fragment = true,
             "--exec" => a.exec = true,
             "--confirm" => a.confirm = true,
-            "--json" => {
-                a.json = true;
+            "--json" => a.json = true,
+            "--color" | "--colour" => {
+                a.color = match value("--color")?.as_str() {
+                    "auto" => ColorMode::Auto,
+                    "always" | "yes" | "force" => ColorMode::Always,
+                    "never" | "no" | "none" => ColorMode::Never,
+                    other => return Err(format!("--color wants auto|always|never, got {other:?}")),
+                }
             }
             "-t" | "--theme" => {
                 let v = value("--theme")?;
@@ -221,6 +342,9 @@ pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Parsed, String> {
             "--depth" => {
                 a.opts.max_depth = parse_num(&value("--depth")?, "--depth")?;
             }
+            "--check" | "--fail-over" => {
+                a.check = Some(parse_num::<u8>(&value("--check")?, "--check")?);
+            }
             "--gate" => {
                 // `off` is spelled out because `0` reads like "no gate" and
                 // means the exact opposite: block anything with any effect.
@@ -235,8 +359,40 @@ pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Parsed, String> {
             other if other.starts_with('-') && other != "-" => {
                 return Err(format!("unknown option {other:?}; try --help"));
             }
-            other => a.file = Some(other.to_string()),
+            other => set_file(&mut a, other.to_string())?,
         }
+    }
+
+    for flag in &seen {
+        let ok = allowed(flag);
+        if !ok.contains(&a.mode) {
+            let where_ = match ok {
+                [Mode::Watch] => "pyx watch",
+                [Mode::Extract] => "pyx extract",
+                _ => "plain pyx",
+            };
+            return Err(format!("{flag} only makes sense with {where_}"));
+        }
+    }
+    if a.mode == Mode::Xray {
+        if a.tui && (a.json || a.out.is_some() || a.contact_sheet.is_some()) {
+            return Err("--tui cannot be combined with --json, --out or --contact-sheet".into());
+        }
+        if a.fragment && a.format != Format::Html {
+            return Err("--fragment needs --format html".into());
+        }
+        if a.confirm && !a.exec {
+            return Err("--confirm needs --exec".into());
+        }
+        if a.gate.is_some() && !a.exec {
+            return Err("--gate needs --exec; to fail without running, use --check".into());
+        }
+        if a.print_event && !a.emit {
+            return Err("--print-event needs --emit".into());
+        }
+    }
+    if a.mode == Mode::Extract && a.file.is_some() {
+        return Err("pyx extract reads the command from stdin; it takes no FILE".into());
     }
     // Defaults follow the situation. Somebody who ran `pyx file.py` is reading
     // a report; somebody about to execute wants a glance that gets out of the
@@ -247,7 +403,152 @@ pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Parsed, String> {
     Ok(Parsed::Run(Box::new(a)))
 }
 
+fn set_file(a: &mut Args, f: String) -> Result<(), String> {
+    if a.file.is_some() {
+        return Err(format!(
+            "only one FILE can be analysed at a time (got {:?} and {f:?})",
+            a.file.as_deref().unwrap_or("")
+        ));
+    }
+    a.file = Some(f);
+    Ok(())
+}
+
+fn canonical(flag: &str) -> Option<&'static str> {
+    const ALL: &[&str] = &[
+        "--help",
+        "--version",
+        "--list",
+        "--tui",
+        "--code",
+        "--no-gutter",
+        "--stdin-is-command",
+        "--quiet",
+        "--replay",
+        "--dump",
+        "--emit",
+        "--feed",
+        "--print-event",
+        "--source",
+        "--name",
+        "--cwd",
+        "--no-files",
+        "--argv",
+        "--floor",
+        "--fragment",
+        "--exec",
+        "--confirm",
+        "--json",
+        "--color",
+        "--colour",
+        "--theme",
+        "--layout",
+        "--icons",
+        "--format",
+        "--width",
+        "--height",
+        "--depth",
+        "--check",
+        "--fail-over",
+        "--gate",
+        "--out",
+        "--contact-sheet",
+    ];
+    ALL.iter().copied().find(|f| *f == flag)
+}
+
 fn parse_num<T: std::str::FromStr>(s: &str, name: &str) -> Result<T, String> {
     s.parse::<T>()
         .map_err(|_| format!("{name} needs a number, got {s:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(args: &[&str]) -> Result<Args, String> {
+        match parse(args.iter().map(|s| s.to_string()))? {
+            Parsed::Run(a) => Ok(*a),
+            _ => Err("not a run".into()),
+        }
+    }
+
+    #[test]
+    fn a_second_positional_is_an_error_not_a_silent_overwrite() {
+        let err = run(&["--emit", "/tmp/feed.jsonl", "script.py"]).unwrap_err();
+        assert!(err.contains("only one FILE"), "{err}");
+        let a = run(&["--emit=/tmp/feed.jsonl", "script.py"]).unwrap();
+        assert!(a.emit);
+        assert_eq!(a.feed.as_deref(), Some("/tmp/feed.jsonl"));
+        assert_eq!(a.file.as_deref(), Some("script.py"));
+        let a = run(&["--feed", "/tmp/f", "s.py"]).unwrap();
+        assert_eq!(a.feed.as_deref(), Some("/tmp/f"));
+    }
+
+    #[test]
+    fn a_file_named_like_a_flag_is_reachable_after_a_double_dash() {
+        let a = run(&["--", "-t"]).unwrap();
+        assert_eq!(a.file.as_deref(), Some("-t"));
+    }
+
+    #[test]
+    fn watch_only_flags_are_refused_elsewhere_and_vice_versa() {
+        assert!(run(&["--dump", "x.py"]).unwrap_err().contains("pyx watch"));
+        assert!(run(&["watch", "--exec"]).unwrap_err().contains("plain pyx"));
+        assert!(run(&["--cwd", "/x", "s.py"])
+            .unwrap_err()
+            .contains("pyx extract"));
+        assert!(run(&["watch", "--dump", "--floor", "check"]).is_ok());
+    }
+
+    #[test]
+    fn nonsense_combinations_are_errors() {
+        assert!(run(&["--tui", "--json", "x.py"]).is_err());
+        assert!(run(&["--fragment", "x.py"]).is_err());
+        assert!(run(&["--gate", "40", "x.py"])
+            .unwrap_err()
+            .contains("--check"));
+        assert!(run(&["--confirm", "x.py"]).is_err());
+        assert!(run(&["--print-event", "x.py"]).is_err());
+        assert!(run(&["--exec", "--gate", "40", "x.py"]).is_ok());
+    }
+
+    #[test]
+    fn the_new_flags_parse() {
+        let a = run(&[
+            "--color", "never", "--check", "40", "--name", "snippet", "-",
+        ])
+        .unwrap();
+        assert_eq!(a.color, ColorMode::Never);
+        assert_eq!(a.check, Some(40));
+        assert_eq!(a.name.as_deref(), Some("snippet"));
+        assert!(run(&["--color", "sometimes"]).is_err());
+        let a = run(&["--json", "x.py"]).unwrap();
+        assert!(a.json);
+        let a = run(&["--list", "--format", "json"]).unwrap();
+        assert!(a.list && a.json);
+    }
+
+    #[test]
+    fn extract_mode_takes_its_own_flags() {
+        let a = run(&["extract", "--cwd", "/w", "--no-files"]).unwrap();
+        assert_eq!(a.mode, Mode::Extract);
+        assert_eq!(a.cwd.as_deref(), Some("/w"));
+        assert!(!a.read_files);
+        let a = run(&["extract", "--argv", "--", "-X", "dev", "s.py"]).unwrap();
+        assert_eq!(
+            a.argv.as_deref(),
+            Some(&["-X".to_string(), "dev".into(), "s.py".into()][..])
+        );
+        assert!(run(&["extract", "file.py"]).is_err());
+    }
+
+    #[test]
+    fn exec_defaults_to_the_auto_layout() {
+        assert_eq!(run(&["--exec", "x.py"]).unwrap().layout, Layout::Auto);
+        assert_eq!(
+            run(&["--exec", "-l", "card", "x.py"]).unwrap().layout,
+            Layout::Card
+        );
+    }
 }

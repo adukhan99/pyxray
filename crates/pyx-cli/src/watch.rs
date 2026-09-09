@@ -66,9 +66,10 @@ pub fn run(o: Options) -> io::Result<()> {
         status: String::new(),
     };
 
-    state.status =
-        "q quit \u{00b7} p pause \u{00b7} f filter \u{00b7} n notes \u{00b7} t theme \u{00b7} c clear"
-            .to_string();
+    state.status = [
+        "q quit", "p pause", "f filter", "n notes", "t theme", "c clear",
+    ]
+    .join(o.theme.gl.sep);
 
     if o.dump {
         for event in feed::read_all(&o.path).unwrap_or_default() {
@@ -302,8 +303,9 @@ fn compose(state: &State, o: &Options, w: u16, h: u16) -> ratatui::buffer::Buffe
     } else {
         "live"
     };
+    let sep = theme.gl.sep;
     let left = format!(
-        " {mode} \u{00b7} {} shown \u{00b7} {} and above ",
+        " {mode}{sep}{} shown{sep}{} and above ",
         total,
         state.floor.word()
     );

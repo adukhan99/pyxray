@@ -100,7 +100,7 @@ impl Panel {
         match self {
             Panel::Line => 1,
             Panel::Legend => 1,
-            Panel::Header => 3 + u16::from(!r.diagnostics.is_empty()),
+            Panel::Header => 3,
             Panel::Flow => flatten(r, o, &crate::theme::UNICODE).len() as u16,
             Panel::Timeline => r.timeline(usize::MAX).len().max(1) as u16,
             Panel::Caps => {
@@ -182,7 +182,7 @@ pub fn barcode(
             } else if lit_only {
                 (' ', t.faint())
             } else {
-                ('\u{00b7}', Style::default().fg(t.pal.rule))
+                (t.gl.dot, Style::default().fg(t.pal.rule))
             };
             cx += canvas::text(buf, cx, y, 1, &ch.to_string(), style);
         }
@@ -193,17 +193,12 @@ pub fn barcode(
 /// Three cells in the band's colour, filled by the band's weight. Colour and
 /// length say the same thing twice, so the strip survives a log file, a
 /// screenshot, and a reader who does not see the hue.
-fn band_block(buf: &mut Buffer, x: u16, y: u16, band: Band, t: &Theme) -> u16 {
-    let colour = match band {
-        Band::Inert => t.pal.faint,
-        Band::Routine => t.pal.ok,
-        Band::Check => t.pal.warn,
-        Band::Read => t.pal.danger,
-    };
+pub fn band_block(buf: &mut Buffer, x: u16, y: u16, band: Band, t: &Theme) -> u16 {
+    let colour = t.risk_color(band);
     let filled = band.weight();
     for i in 0..3usize {
         let (ch, style) = if i < filled {
-            ('\u{2588}', Style::default().fg(colour))
+            (t.gl.block, Style::default().fg(colour))
         } else {
             (' ', t.faint())
         };
@@ -223,7 +218,7 @@ fn line(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme, o: &Opts) {
         5,
         &format!("{:>4} ", r.metrics.risk),
         Style::default()
-            .fg(t.risk_color(r.metrics.risk))
+            .fg(t.risk_color(band))
             .add_modifier(if band >= Band::Check {
                 Modifier::BOLD
             } else {
@@ -238,7 +233,7 @@ fn line(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme, o: &Opts) {
     let name = fit(&r.meta.name, (a.width / 4).max(8), t.gl.ellipsis);
     let name_w = width(&name) + 2;
     let room = a.right().saturating_sub(x).saturating_sub(name_w);
-    let synopsis = r.meta.synopsis.replace('\u{2192}', t.gl.arrow);
+    let synopsis = t.localise(&r.meta.synopsis);
     canvas::text(
         buf,
         x,
@@ -283,8 +278,8 @@ fn legend(buf: &mut Buffer, a: Rect, t: &Theme) {
         }
     }
     x += canvas::text(buf, x, a.y, 3, "   ", t.faint());
-    let names = "fs \u{00b7} world \u{00b7} eval \u{00b7} work \u{00b7} out";
-    canvas::text(buf, x, a.y, a.right().saturating_sub(x), names, t.faint());
+    let names = ["fs", "world", "eval", "work", "out"].join(t.gl.sep);
+    canvas::text(buf, x, a.y, a.right().saturating_sub(x), &names, t.faint());
 }
 
 // ------------------------------------------------------------------- header
@@ -298,8 +293,9 @@ fn header(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme) {
     // The metadata degrades in three steps rather than overflowing: the full
     // sentence, an abbreviated form, then nothing at all. At 32 columns there
     // simply is no room, and eating the frame to say so helps no one.
+    let sep = t.gl.sep;
     let full = format!(
-        "{} line{} \u{00b7} {} statement{} \u{00b7} depth {} \u{00b7} cyclomatic {}",
+        "{} line{}{sep}{} statement{}{sep}depth {}{sep}cyclomatic {}",
         m.lines_total,
         plural(m.lines_total),
         m.statements,
@@ -308,7 +304,7 @@ fn header(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme) {
         m.complexity
     );
     let short = format!(
-        "{}L \u{00b7} {}S \u{00b7} d{} \u{00b7} cx{}",
+        "{}L{sep}{}S{sep}d{}{sep}cx{}",
         m.lines_total, m.statements, m.max_depth, m.complexity
     );
     let brand_w = width("pyxray") + 2;
@@ -348,7 +344,7 @@ fn header(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme) {
     // arrow in front of them only muddies that.
     // The synopsis is built without knowing the theme, so swap in whichever
     // arrow this one uses before measuring it.
-    let synopsis = r.meta.synopsis.replace('\u{2192}', t.gl.arrow);
+    let synopsis = t.localise(&r.meta.synopsis);
     let synopsis = fit(&synopsis, a.width, t.gl.ellipsis);
     canvas::text(
         buf,
@@ -359,10 +355,12 @@ fn header(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme) {
         Style::default().fg(t.pal.fg).add_modifier(Modifier::BOLD),
     );
 
-    // Risk meter.
+    // Risk meter. Coloured and worded by the band, which asks severity
+    // first — the same answer the band block beside it gives.
     let risk = m.risk;
-    let colour = t.risk_color(risk);
-    let word = t.risk_word(risk);
+    let band = r.band();
+    let colour = t.risk_color(band);
+    let word = t.risk_word(band);
     let label = "risk ";
     let mut x = a.x;
     x += canvas::text(buf, x, a.y + 2, a.width, label, t.faint());
@@ -393,23 +391,6 @@ fn header(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme) {
     let bar_w = barcode_width();
     if a.right().saturating_sub(x) > bar_w + 2 {
         barcode(buf, a.right() - bar_w, a.y + 2, r.mask(), t, false);
-    }
-
-    if !r.diagnostics.is_empty() {
-        let msg = format!(
-            "{} {} syntax error{} — analysis is partial",
-            t.gl.cross,
-            r.diagnostics.len(),
-            if r.diagnostics.len() == 1 { "" } else { "s" }
-        );
-        canvas::text(
-            buf,
-            a.x,
-            a.y + 3,
-            a.width,
-            &msg,
-            Style::default().fg(t.pal.danger),
-        );
     }
 }
 
@@ -647,7 +628,11 @@ fn caps(buf: &mut Buffer, a: Rect, r: &Report, t: &Theme, o: &Opts) {
     let mut y = a.y;
     for (effect, sev, count) in summary {
         let colour = t.effect_color(effect);
-        let mark = if sev == Severity::Caution { "!" } else { "" };
+        let mark = if sev == Severity::Caution {
+            t.gl.bang.to_string()
+        } else {
+            String::new()
+        };
         let label = match o.icons {
             Icons::Glyph => format!("{} {count}{mark}", t.effect_icon(effect)),
             Icons::Tag => format!("{} {count}{mark}", effect_tag(effect)),

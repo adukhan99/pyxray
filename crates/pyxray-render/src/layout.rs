@@ -342,5 +342,36 @@ pub fn render(
     };
     let mut buf = Buffer::empty(area);
     draw(&mut buf, &plan, r, t, o);
+    if t.gl.ellipsis.is_ascii() {
+        asciify(&mut buf);
+    }
     buf
+}
+
+/// For a theme whose glyph set is ASCII, the analyser's own punctuation —
+/// the `…` a clipped label ends in, the `→` in a return annotation, the
+/// `—` between clauses — still arrives from `pyxray-core`, which has no idea
+/// what is being drawn. Swap the handful of single-cell characters it uses
+/// for their ASCII stand-ins. The user's own text is left alone: a CJK
+/// identifier is theirs to display, and replacing a wide cell with a narrow
+/// one would break the grid anyway.
+fn asciify(buf: &mut Buffer) {
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            let Some(cell) = buf.cell_mut((x, y)) else {
+                continue;
+            };
+            let sub = match cell.symbol() {
+                "\u{2026}" => "~",
+                "\u{2192}" => ">",
+                "\u{2190}" => "<",
+                "\u{2014}" | "\u{2013}" => "-",
+                "\u{00b7}" | "\u{2022}" => ".",
+                "\u{2588}" => "#",
+                "\u{2591}" => ".",
+                _ => continue,
+            };
+            cell.set_symbol(sub);
+        }
+    }
 }

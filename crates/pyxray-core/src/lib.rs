@@ -12,10 +12,12 @@
 pub mod analyze;
 pub mod digest;
 pub mod effects;
+pub mod extract;
 pub mod feed;
 pub mod model;
 pub mod source;
 
+pub use extract::{extract_all, extract_python, ExtractOpts, Extracted, Invocation};
 pub use model::*;
 
 use ruff_python_parser::{parse_unchecked, ParseOptions};
@@ -177,102 +179,6 @@ pub fn xray(source: &str, name: &str) -> Report {
         diagnostics,
         source: source.lines().map(|l| l.to_string()).collect(),
     }
-}
-
-/// Pull the Python body out of the shell command a model typically emits —
-/// `python3 <<'EOF' … EOF`, `python -c '…'`, or a bare script. Returns the
-/// source and a label describing where it came from.
-pub fn extract_python(input: &str) -> (String, String) {
-    let trimmed = input.trim_start();
-
-    // heredoc: python3 <<'PY' … PY
-    if let Some(rest) = strip_python_prefix(trimmed) {
-        if let Some(idx) = rest.find("<<") {
-            let after = &rest[idx + 2..];
-            let after = after.strip_prefix('-').unwrap_or(after);
-            let after = after.trim_start();
-            let (delim, body_start) = read_delimiter(after);
-            if let Some(delim) = delim {
-                let body = &after[body_start..];
-                let body = body.strip_prefix('\n').unwrap_or(body);
-                if let Some(end) = find_terminator(body, &delim) {
-                    return (body[..end].to_string(), format!("heredoc <<{delim}"));
-                }
-                return (
-                    body.to_string(),
-                    format!("heredoc <<{delim} (unterminated)"),
-                );
-            }
-        }
-        // python -c "…"
-        for flag in ["-c ", "-c'", "-c\""] {
-            if let Some(pos) = rest.find(flag) {
-                let after = rest[pos + 2..].trim_start();
-                if let Some(code) = unquote(after) {
-                    return (code, "python -c".to_string());
-                }
-            }
-        }
-    }
-    (input.to_string(), "<stdin>".to_string())
-}
-
-fn strip_python_prefix(s: &str) -> Option<&str> {
-    for prefix in ["python3 ", "python ", "python3.", "uv run python", "py "] {
-        if let Some(rest) = s.strip_prefix(prefix) {
-            return Some(rest);
-        }
-    }
-    None
-}
-
-/// Read a heredoc delimiter, quoted or bare, returning it plus the offset just
-/// past it.
-fn read_delimiter(s: &str) -> (Option<String>, usize) {
-    let bytes = s.as_bytes();
-    match bytes.first() {
-        Some(&q @ (b'\'' | b'"')) => {
-            let rest = &s[1..];
-            match rest.find(q as char) {
-                Some(end) => (Some(rest[..end].to_string()), end + 2),
-                None => (None, 0),
-            }
-        }
-        Some(_) => {
-            let end = s.find(|c: char| c.is_whitespace()).unwrap_or(s.len());
-            let word = &s[..end];
-            if word.is_empty() {
-                (None, 0)
-            } else {
-                (Some(word.to_string()), end)
-            }
-        }
-        None => (None, 0),
-    }
-}
-
-/// A heredoc ends at a line that is exactly the delimiter, allowing for the
-/// leading tabs that `<<-` permits.
-fn find_terminator(body: &str, delim: &str) -> Option<usize> {
-    let mut offset = 0;
-    for line in body.split_inclusive('\n') {
-        if line.trim_end_matches(['\n', '\r']).trim_start_matches('\t') == delim {
-            return Some(offset);
-        }
-        offset += line.len();
-    }
-    None
-}
-
-fn unquote(s: &str) -> Option<String> {
-    let mut chars = s.chars();
-    let quote = chars.next()?;
-    if quote != '\'' && quote != '"' {
-        return None;
-    }
-    let rest = &s[quote.len_utf8()..];
-    let end = rest.rfind(quote)?;
-    Some(rest[..end].to_string())
 }
 
 #[cfg(test)]
