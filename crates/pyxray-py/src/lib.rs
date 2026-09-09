@@ -201,11 +201,39 @@ fn read_feed(path: Option<&str>) -> PyResult<String> {
     serde_json::to_string(&events).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-/// Pull the Python out of a shell command: `python3 <<'EOF' … EOF`,
-/// `python -c '…'`, or a bare script. Returns `(source, label)`.
+/// Pull the first piece of Python out of a shell command, or return the
+/// command itself when it is not recognisably a wrapped snippet. Returns
+/// `(source, label)`. See `extract_all` for everything.
 #[pyfunction]
 fn extract(command: &str) -> (String, String) {
     pyxray_core::extract_python(command)
+}
+
+/// Every piece of Python a shell command would run, as a JSON array of
+/// `{source, label, path, segment}` — heredocs, `-c`, script files (read
+/// relative to `cwd`), pipes, `bash -c`, in command order.
+#[pyfunction]
+#[pyo3(signature = (command, cwd = None, read_files = true))]
+fn extract_all(command: &str, cwd: Option<&str>, read_files: bool) -> PyResult<String> {
+    fenced("extract", || {
+        let opts = pyxray_core::ExtractOpts {
+            cwd: cwd.map(std::path::PathBuf::from),
+            read_files,
+            ..pyxray_core::ExtractOpts::default()
+        };
+        let found = pyxray_core::extract_all(command, &opts);
+        serde_json::to_string(&found).map_err(|e| PyValueError::new_err(e.to_string()))
+    })
+}
+
+/// Read an interpreter's own argument list the way CPython does. Returns
+/// JSON `{code, module, script, stdin}`.
+#[pyfunction]
+fn classify_argv(args: Vec<String>) -> PyResult<String> {
+    fenced("classify_argv", || {
+        let inv = pyxray_core::extract::classify_argv(&args);
+        serde_json::to_string(&inv).map_err(|e| PyValueError::new_err(e.to_string()))
+    })
 }
 
 /// The available themes, as `(id, name, blurb)` triples.
@@ -232,6 +260,9 @@ fn _pyxray(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(analyze_json, m)?)?;
     m.add_function(wrap_pyfunction!(render, m)?)?;
     m.add_function(wrap_pyfunction!(extract, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_all, m)?)?;
+    m.add_function(wrap_pyfunction!(classify_argv, m)?)?;
+    m.add("SCHEMA", pyxray_core::SCHEMA)?;
     m.add_function(wrap_pyfunction!(look, m)?)?;
     m.add_function(wrap_pyfunction!(feed_path, m)?)?;
     m.add_function(wrap_pyfunction!(read_feed, m)?)?;

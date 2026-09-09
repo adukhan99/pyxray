@@ -9,3 +9,4 @@ python/pyxray/bin/
 *.dylib
 /dist/
 .pytest_cache/
+integrations/shim/python

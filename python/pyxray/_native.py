@@ -1,9 +1,13 @@
 """Locate the analysis engine.
 
 Prefers the compiled extension that ships beside this file. Falls back to the
-``pyx`` binary, so a checkout with a built CLI but no built extension still
-works — which is the common case when someone has just cloned and run
-``cargo build``.
+``pyx`` binary — on ``PATH``, at ``$PYXRAY_BIN``, bundled into the wheel under
+``pyxray/bin/``, or in a checkout's ``target/`` — so a clone with a built CLI
+but no built extension still works, which is the common case when someone has
+just run ``cargo build``.
+
+Set ``PYXRAY_FORCE_BINARY=1`` to skip the extension even when it is present;
+the test-suite uses that to exercise the fallback path.
 """
 
 from __future__ import annotations
@@ -12,12 +16,15 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 __all__ = ["Engine", "engine", "EngineError"]
 
-_ROOT = Path(__file__).resolve().parent.parent.parent
+_HERE = Path(__file__).resolve().parent
+_ROOT = _HERE.parent.parent
+_EXE = "pyx.exe" if os.name == "nt" else "pyx"
 
 
 class EngineError(RuntimeError):
@@ -36,6 +43,16 @@ class Engine:
         raise NotImplementedError
 
     def extract(self, command: str) -> tuple[str, str]:
+        raise NotImplementedError
+
+    def extract_all(
+        self, command: str, cwd: str | None = None, read_files: bool = True
+    ) -> list[dict[str, Any]]:
+        """Every piece of Python in a shell command; see ``pyx extract``."""
+        raise NotImplementedError
+
+    def classify_argv(self, args: list[str]) -> dict[str, Any]:
+        """``{code, module, script, stdin}`` for an interpreter's own argv."""
         raise NotImplementedError
 
     def themes(self) -> list[tuple[str, str, str]]:
@@ -70,6 +87,14 @@ class _Extension(Engine):
     def extract(self, command: str) -> tuple[str, str]:
         return tuple(self._m.extract(command))  # type: ignore[return-value]
 
+    def extract_all(
+        self, command: str, cwd: str | None = None, read_files: bool = True
+    ) -> list[dict[str, Any]]:
+        return json.loads(self._m.extract_all(command, cwd, read_files))
+
+    def classify_argv(self, args: list[str]) -> dict[str, Any]:
+        return json.loads(self._m.classify_argv(list(args)))
+
     def themes(self) -> list[tuple[str, str, str]]:
         return self._m.themes()
 
@@ -92,23 +117,38 @@ class _Binary(Engine):
 
     def __init__(self, exe: str) -> None:
         self._exe = exe
+        self._listing: dict[str, Any] | None = None
 
-    def _run(self, args: list[str], source: str) -> str:
+    def _run(self, args: list[str], source: str | None = None) -> str:
         proc = subprocess.run(
             [self._exe, *args],
             input=source,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
-        if proc.returncode not in (0,):
+        if proc.returncode not in (0, 3):
             raise EngineError(proc.stderr.strip() or f"pyx exited {proc.returncode}")
         return proc.stdout
 
+    def _list(self) -> dict[str, Any]:
+        if self._listing is None:
+            try:
+                self._listing = json.loads(self._run(["--list", "--format", "json"]))
+            except (EngineError, json.JSONDecodeError):
+                self._listing = {}
+        return self._listing
+
     def analyze(self, source: str, name: str = "<stdin>") -> dict[str, Any]:
-        return json.loads(self._run(["--format", "json"], source))
+        return json.loads(self._run(["--format", "json", "--name", name], source))
 
     def render(self, source: str, **kw: Any) -> str:
-        args = ["--format", str(kw.get("format", "ansi"))]
+        fmt = str(kw.get("format", "ansi"))
+        args = ["--format", fmt, "--name", str(kw.get("name", "<stdin>"))]
+        if fmt == "ansi":
+            # The binary would otherwise, sensibly, strip colour from a pipe.
+            args += ["--color", "always"]
         for flag, key in (
             ("--theme", "theme"),
             ("--layout", "layout"),
@@ -127,38 +167,53 @@ class _Binary(Engine):
         return self._run(args, source)
 
     def extract(self, command: str) -> tuple[str, str]:
-        # The binary does this internally; replicate just enough here that the
-        # fallback path is not crippled.
-        from .heredoc import extract_python
+        found = self.extract_all(command)
+        for item in found:
+            if item.get("source", "").strip():
+                return item["source"], item["label"]
+        return command, "<stdin>"
 
-        return extract_python(command)
+    def extract_all(
+        self, command: str, cwd: str | None = None, read_files: bool = True
+    ) -> list[dict[str, Any]]:
+        args = ["extract"]
+        if cwd:
+            args += ["--cwd", cwd]
+        if not read_files:
+            args.append("--no-files")
+        return json.loads(self._run(args, command))
+
+    def classify_argv(self, args: list[str]) -> dict[str, Any]:
+        return json.loads(self._run(["extract", "--argv", "--", *args]))
 
     def look(self, code: str, **kw: Any) -> tuple[dict[str, Any], str]:
-        # One invocation does both jobs: --emit appends the event, and the
-        # render lands on stdout unless we asked for silence.
-        args = ["--emit", "--source", str(kw.get("source", "shim"))]
+        # One invocation does everything: --emit appends the event,
+        # --print-event hands it back as the first line, and the render — if
+        # asked for — follows.
+        args = ["--emit", "--print-event", "--source", str(kw.get("source", "shim")),
+                "--name", str(kw.get("name", "<stdin>"))]
         if path := kw.get("path"):
-            args[0] = f"--emit={path}"
+            args += ["--feed", str(path)]
         if kw.get("draw"):
             args += ["--format", str(kw.get("format", "ansi")),
+                     "--color", "always",
                      "--layout", str(kw.get("layout", "auto")),
                      "--theme", str(kw.get("theme", "blueprint")),
                      "--icons", str(kw.get("icons", "both")),
                      "--width", str(kw.get("width", 100))]
         else:
             args.append("--quiet")
-        rendered = self._run(args, code)
-        # The binary does not hand the event back, so read the tail of the log.
-        events = self.read_feed(kw.get("path"))
-        event = events[-1] if events else {"risk": 0, "band": "inert", "synopsis": ""}
-        return event, rendered if kw.get("draw") else ""
+        out = self._run(args, code)
+        first, _, rest = out.partition("\n")
+        try:
+            event = json.loads(first)
+        except json.JSONDecodeError:
+            event = {"risk": 0, "band": "inert", "synopsis": "", "notes": [], "blocked": False}
+            rest = out
+        return event, rest if kw.get("draw") else ""
 
     def feed_path(self) -> str:
-        out = subprocess.run([self._exe, "--list"], capture_output=True, text=True).stdout
-        for line in out.splitlines():
-            if line.startswith("  /") or line.startswith("  ~"):
-                return line.strip()
-        return ""
+        return str(self._list().get("feed", ""))
 
     def read_feed(self, path: str | None = None) -> list[dict[str, Any]]:
         target = path or os.environ.get("PYXRAY_LOG") or self.feed_path()
@@ -175,39 +230,27 @@ class _Binary(Engine):
         return rows
 
     def themes(self) -> list[tuple[str, str, str]]:
-        out = subprocess.run([self._exe, "--list"], capture_output=True, text=True).stdout
-        rows: list[tuple[str, str, str]] = []
-        section = None
-        for line in out.splitlines():
-            if line.endswith(":"):
-                section = line[:-1]
-            elif section == "themes" and line.startswith("  "):
-                ident, _, blurb = line.strip().partition(" ")
-                rows.append((ident, ident.title(), blurb.strip()))
-        return rows
+        return [(t["id"], t["name"], t["blurb"]) for t in self._list().get("themes", [])]
 
     def layouts(self) -> list[tuple[str, str]]:
-        out = subprocess.run([self._exe, "--list"], capture_output=True, text=True).stdout
-        rows: list[tuple[str, str]] = []
-        section = None
-        for line in out.splitlines():
-            if line.endswith(":"):
-                section = line[:-1]
-            elif section == "layouts" and line.startswith("  "):
-                ident, _, blurb = line.strip().partition(" ")
-                rows.append((ident, blurb.strip()))
-        return rows
+        return [(l["id"], l["blurb"]) for l in self._list().get("layouts", [])]
 
 
 def _find_binary() -> str | None:
     if override := os.environ.get("PYXRAY_BIN"):
-        return override if Path(override).exists() else None
+        if Path(override).is_file():
+            return override
+        # A stale override should not disable the fallback entirely.
+        print(f"pyxray: PYXRAY_BIN={override!r} does not exist; looking elsewhere",
+              file=sys.stderr)
     found = shutil.which("pyx")
     if found:
         return found
+    candidates = [_HERE / "bin" / _EXE]
     for profile in ("release", "debug"):
-        candidate = _ROOT / "target" / profile / "pyx"
-        if candidate.exists():
+        candidates.append(_ROOT / "target" / profile / _EXE)
+    for candidate in candidates:
+        if candidate.is_file():
             return str(candidate)
     return None
 
@@ -220,18 +263,20 @@ def engine() -> Engine:
     global _cached
     if _cached is not None:
         return _cached
-    try:
-        from . import _pyxray  # type: ignore[attr-defined]
+    if os.environ.get("PYXRAY_FORCE_BINARY") != "1":
+        try:
+            from . import _pyxray  # type: ignore[attr-defined]
 
-        _cached = _Extension(_pyxray)
-        return _cached
-    except ImportError:
-        pass
+            _cached = _Extension(_pyxray)
+            return _cached
+        except ImportError:
+            pass
     exe = _find_binary()
     if exe:
         _cached = _Binary(exe)
         return _cached
     raise EngineError(
-        "no pyxray engine found — build one with `cargo build --release` "
-        "(then `make install-ext`), or set PYXRAY_BIN to a pyx binary"
+        "no pyxray engine found — pip install pyxray, or build one with "
+        "`cargo build --release` (then `make install-ext`), or set PYXRAY_BIN "
+        "to a pyx binary"
     )

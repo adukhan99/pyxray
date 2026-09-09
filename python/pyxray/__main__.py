@@ -1,4 +1,8 @@
-"""``python -m pyxray`` — the CLI, for when the binary is not on PATH."""
+"""``python -m pyxray`` — a small CLI for when the ``pyx`` binary is not on PATH.
+
+It covers rendering and JSON output. The feed, the watcher, the TUI, the
+gate and the contact sheet live in ``pyx`` (``pip install pyxray`` ships it as
+a console script; a source checkout builds it with ``cargo build``)."""
 
 from __future__ import annotations
 
@@ -6,7 +10,7 @@ import argparse
 import sys
 
 from . import analyze, backend, layouts, render, themes
-from .heredoc import extract_python
+from . import extract as extract_python
 
 
 def main(argv: list[str] | None = None) -> int:
