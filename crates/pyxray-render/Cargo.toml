@@ -3,6 +3,11 @@ name = "pyxray-render"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Themed terminal rendering for pyxray reports, exportable to ANSI, HTML and SVG"
 
 [dependencies]

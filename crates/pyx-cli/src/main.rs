@@ -9,7 +9,7 @@ use std::io::{IsTerminal, Read, Write};
 use std::process::ExitCode;
 
 use pyxray_core::feed;
-use pyxray_core::{extract_python, xray, Report};
+use pyxray_core::{extract_python, xray_guarded, Report};
 use pyxray_render::export::Format;
 use pyxray_render::layout;
 use pyxray_render::theme::THEMES;
@@ -66,7 +66,7 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let (source, name) = read_input(&a)?;
-    let report = xray(&source, &name);
+    let report = xray_guarded(&source, &name);
 
     if a.json {
         let text = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;

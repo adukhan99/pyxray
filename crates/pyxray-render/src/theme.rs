@@ -46,7 +46,7 @@ pub struct Palette {
     pub warn: Color,
     pub danger: Color,
     /// One colour per [`Effect`], indexed by `Effect as usize`.
-    pub effects: [Color; 13],
+    pub effects: [Color; Effect::COUNT],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -69,7 +69,7 @@ pub struct Glyphs {
     /// Eight-step ramp for bars and the minimap, lightest first.
     pub ramp: [char; 8],
     /// One character per [`Effect`].
-    pub effect_icons: [char; 13],
+    pub effect_icons: [char; Effect::COUNT],
     /// Severity markers: info, notable, caution.
     pub severity: [char; 3],
     pub check: char,

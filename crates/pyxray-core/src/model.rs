@@ -4,6 +4,16 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Version of the JSON contract carried by [`Report`] and [`Event`].
+///
+/// Rules for bumping it: adding a field with `#[serde(default)]` does not
+/// need a bump; renaming or removing a field, or changing what an existing
+/// value means, does. [`Effect`] variants may only ever be *appended* — the
+/// feed stores [`EffectMask`] as a bare integer whose bit positions are the
+/// declaration order, and a watcher reads events written by older builds.
+/// A reader skips any event whose `schema` is newer than its own.
+pub const SCHEMA: u32 = 1;
+
 /// A capability the snippet reaches for. Deliberately a short, memorable set —
 /// every variant gets its own colour and glyph downstream, and a list longer
 /// than a dozen or so stops being glanceable.
@@ -26,12 +36,17 @@ pub enum Effect {
 }
 
 impl Effect {
+    /// How many capabilities there are. Arrays keyed by capability — palettes,
+    /// glyph sets, the barcode — are sized by this so a new variant fails to
+    /// compile until every table has a slot for it.
+    pub const COUNT: usize = 13;
+
     /// Reading order for the capability barcode: the fixed 13-slot strip a
     /// reader learns as a *shape*. Grouped so related capabilities sit
     /// together — filesystem, then the world outside the process, then
     /// runtime code, then work, then output — because the eye learns
     /// clusters faster than it learns thirteen separate positions.
-    pub const BARCODE: [Effect; 13] = [
+    pub const BARCODE: [Effect; Effect::COUNT] = [
         Effect::FsRead,
         Effect::FsWrite,
         Effect::FsDelete,
@@ -51,7 +66,9 @@ impl Effect {
     /// gap between each, like the guard bars on a real barcode.
     pub const BARCODE_GROUPS: [usize; 5] = [3, 3, 1, 4, 2];
 
-    pub const ALL: [Effect; 13] = [
+    /// Every capability, in declaration order. This is the bit order of
+    /// [`EffectMask`] and the order `from_id` searches; append only.
+    pub const ALL: [Effect; Effect::COUNT] = [
         Effect::FsRead,
         Effect::FsWrite,
         Effect::FsDelete,
@@ -67,12 +84,13 @@ impl Effect {
         Effect::Exit,
     ];
 
-    /// Stable short id, used in JSON, CLI filters and theme lookup tables.
+    /// Stable short id — the same spelling serde writes into JSON — used in
+    /// CLI filters and theme lookup tables.
     pub fn id(self) -> &'static str {
         match self {
-            Effect::FsRead => "fs.read",
-            Effect::FsWrite => "fs.write",
-            Effect::FsDelete => "fs.delete",
+            Effect::FsRead => "fs_read",
+            Effect::FsWrite => "fs_write",
+            Effect::FsDelete => "fs_delete",
             Effect::Net => "net",
             Effect::Process => "process",
             Effect::Env => "env",
@@ -109,7 +127,10 @@ impl Effect {
         1u16 << (self as u16)
     }
 
+    /// Parse an id. Accepts the JSON spelling (`fs_read`) and the dotted
+    /// spelling earlier builds used (`fs.read`).
     pub fn from_id(s: &str) -> Option<Effect> {
+        let s = s.replace('.', "_");
         Effect::ALL.into_iter().find(|e| e.id() == s)
     }
 }
@@ -470,6 +491,9 @@ pub struct Meta {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Report {
+    /// See [`SCHEMA`]. Absent (0) in output from builds before versioning.
+    #[serde(default)]
+    pub schema: u32,
     pub meta: Meta,
     pub spine: Node,
     pub imports: Vec<ImportInfo>,
@@ -481,6 +505,57 @@ pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
     /// The source, kept so renderers can show code beside the analysis.
     pub source: Vec<String>,
+}
+
+impl Report {
+    /// The report for a snippet the analyser could not finish — an internal
+    /// panic caught by [`crate::xray_guarded`]. Empty, honest, and marked with
+    /// one error diagnostic so a reader can tell "nothing found" from "could
+    /// not look".
+    pub fn failed(source: &str, name: &str, why: &str) -> Report {
+        let lines: Vec<String> = source.lines().map(|l| l.to_string()).collect();
+        let n = lines.len() as u32;
+        Report {
+            schema: SCHEMA,
+            meta: Meta {
+                name: name.to_string(),
+                bytes: source.len(),
+                parsed: false,
+                synopsis: "analysis failed — read it yourself".to_string(),
+                headline: Vec::new(),
+            },
+            spine: Node {
+                id: 0,
+                kind: NodeKind::Module,
+                label: name.to_string(),
+                detail: None,
+                line: 1,
+                end_line: n.max(1),
+                depth: 0,
+                own_effects: EffectMask::default(),
+                effects: EffectMask::default(),
+                severity: None,
+                weight: 1,
+                children: Vec::new(),
+            },
+            imports: Vec::new(),
+            effects: Vec::new(),
+            symbols: Vec::new(),
+            bindings: Vec::new(),
+            metrics: Metrics {
+                lines_total: n,
+                ..Metrics::default()
+            },
+            texture: Vec::new(),
+            diagnostics: vec![Diagnostic {
+                level: DiagLevel::Error,
+                message: format!("pyxray could not analyse this snippet: {why}"),
+                line: 1,
+                col: 1,
+            }],
+            source: lines,
+        }
+    }
 }
 
 /// Which of the four risk bands a score falls in. The bands, not the number,
@@ -498,6 +573,7 @@ pub enum Band {
 impl Band {
     /// Band from the score alone. Only for places that have nothing else —
     /// the sparkline, mostly. Prefer [`Band::assess`].
+    #[doc(hidden)]
     pub fn of(risk: u8) -> Band {
         match risk {
             0..=9 => Band::Inert,
@@ -568,6 +644,9 @@ impl Band {
 /// small enough to append to a log a few times a second.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Event {
+    /// See [`SCHEMA`]. Absent (0) in feed lines written before versioning.
+    #[serde(default)]
+    pub schema: u32,
     /// Milliseconds since the Unix epoch.
     pub ts: u64,
     pub name: String,
@@ -619,6 +698,7 @@ impl Report {
         notes.sort_by(|a, b| b.severity.cmp(&a.severity).then(a.line.cmp(&b.line)));
         notes.truncate(4);
         Event {
+            schema: SCHEMA,
             ts,
             name: self.meta.name.clone(),
             source: source.to_string(),
@@ -695,5 +775,62 @@ impl Report {
 
     pub fn worst(&self) -> Option<Severity> {
         self.effects.iter().map(|h| h.severity).max()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effect_bits_are_declaration_order() {
+        // The feed persists masks as integers; this pins the bit layout so a
+        // reordered enum fails here rather than silently relabelling old rows.
+        for (i, e) in Effect::ALL.iter().enumerate() {
+            assert_eq!(*e as u16, i as u16, "{e:?}");
+            assert_eq!(e.bit(), 1 << i);
+        }
+        assert_eq!(Effect::ALL.len(), Effect::COUNT);
+    }
+
+    #[test]
+    fn barcode_is_a_permutation_of_all() {
+        let mut sorted = Effect::BARCODE.to_vec();
+        sorted.sort();
+        let mut all = Effect::ALL.to_vec();
+        all.sort();
+        assert_eq!(sorted, all);
+        assert_eq!(Effect::BARCODE_GROUPS.iter().sum::<usize>(), Effect::COUNT);
+    }
+
+    #[test]
+    fn ids_round_trip_in_both_spellings() {
+        for e in Effect::ALL {
+            assert_eq!(Effect::from_id(e.id()), Some(e));
+            assert_eq!(serde_json::to_string(&e).unwrap(), format!("\"{}\"", e.id()));
+        }
+        assert_eq!(Effect::from_id("fs.read"), Some(Effect::FsRead));
+        assert_eq!(Effect::from_id("nope"), None);
+    }
+
+    #[test]
+    fn report_json_carries_the_schema() {
+        let report = crate::xray("print(1)", "t");
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["schema"], SCHEMA);
+        let event = serde_json::to_value(report.event("test")).unwrap();
+        assert_eq!(event["schema"], SCHEMA);
+        let back: Report = serde_json::from_value(json).unwrap();
+        assert_eq!(back.schema, SCHEMA);
+    }
+
+    #[test]
+    fn a_failed_report_says_so() {
+        let r = Report::failed("a = 1\nb = 2\n", "x.py", "boom");
+        assert_eq!(r.metrics.lines_total, 2);
+        assert!(!r.meta.parsed);
+        assert_eq!(r.diagnostics.len(), 1);
+        assert!(r.diagnostics[0].message.contains("boom"));
+        assert!(r.effects.is_empty());
     }
 }

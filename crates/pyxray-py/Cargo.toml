@@ -3,14 +3,19 @@ name = "pyxray-py"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
 description = "Python bindings for pyxray"
 
 [lib]
 name = "_pyxray"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 pyxray-core.workspace = true
 pyxray-render.workspace = true
 serde_json.workspace = true
-pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"] }
+# `extension-module` is switched on by maturin (see pyproject.toml); leaving it
+# off here lets `cargo test --workspace` link on macOS.
+pyo3 = { version = "0.29", features = ["abi3-py39"] }

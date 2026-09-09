@@ -36,7 +36,7 @@ pub struct Stats {
     /// Counts per band, indexed by `Band as usize`.
     pub bands: [u64; 4],
     /// Counts per capability, in `Effect::BARCODE` order.
-    pub caps: [u64; 13],
+    pub caps: [u64; Effect::COUNT],
     /// Recent risk scores, oldest first, for the sparkline.
     pub recent: VecDeque<u8>,
     /// Epoch milliseconds of the first and last event seen.

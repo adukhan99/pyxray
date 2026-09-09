@@ -3,6 +3,11 @@ name = "pyxray-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Parse a Python snippet and derive a structural / effect X-ray of what it does"
 
 [dependencies]

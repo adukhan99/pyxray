@@ -21,10 +21,43 @@ pub use model::*;
 use ruff_python_parser::{parse_unchecked, ParseOptions};
 use source::Src;
 
-/// Analyse a snippet. Never fails: a snippet that does not parse still yields
-/// a report built from whatever the recovering parser salvaged, with the
-/// syntax errors attached as diagnostics — which is the useful behaviour when
-/// the input came from a language model rather than a file on disk.
+/// Analyse a snippet, and survive it. Runs [`xray`] on its own thread with a
+/// generous stack, and if anything inside panics — a parser edge case, an
+/// assumption the input broke — returns [`Report::failed`] instead of taking
+/// the process down. This is the entry point the CLI and the Python
+/// extension use: the analyser sits in front of somebody else's command, and
+/// crashing there is worse than saying "could not look".
+pub fn xray_guarded(source: &str, name: &str) -> Report {
+    const STACK: usize = 64 << 20;
+    let src = source.to_string();
+    let nm = name.to_string();
+    let spawned = std::thread::Builder::new()
+        .name("pyxray-analyse".into())
+        .stack_size(STACK)
+        .spawn(move || xray(&src, &nm));
+    let outcome = match spawned {
+        Ok(handle) => handle.join(),
+        // Could not even start a thread: analyse inline and accept the risk.
+        Err(_) => return xray(source, name),
+    };
+    match outcome {
+        Ok(report) => report,
+        Err(payload) => {
+            let why = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "internal error".to_string());
+            Report::failed(source, name, &why)
+        }
+    }
+}
+
+/// Analyse a snippet. Never fails on bad *Python*: a snippet that does not
+/// parse still yields a report built from whatever the recovering parser
+/// salvaged, with the syntax errors attached as diagnostics — which is the
+/// useful behaviour when the input came from a language model rather than a
+/// file on disk. Internal panics are not caught here; see [`xray_guarded`].
 pub fn xray(source: &str, name: &str) -> Report {
     let src = Src::new(source);
     let parsed = parse_unchecked(source, ParseOptions::from(ruff_python_parser::Mode::Module));
@@ -129,6 +162,7 @@ pub fn xray(source: &str, name: &str) -> Report {
     };
 
     Report {
+        schema: SCHEMA,
         meta: Meta {
             name: name.to_string(),
             bytes: source.len(),

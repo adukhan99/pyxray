@@ -81,11 +81,19 @@ pub fn read_all(path: &Path) -> std::io::Result<Vec<Event>> {
     };
     let mut out = Vec::new();
     for line in BufReader::new(file).lines().map_while(Result::ok) {
-        if let Ok(event) = serde_json::from_str::<Event>(&line) {
+        if let Some(event) = parse_line(&line) {
             out.push(event);
         }
     }
     Ok(out)
+}
+
+/// One feed line → one event, or nothing: a half-written line from a
+/// concurrent append is normal, and so is a line written by a newer build
+/// whose schema this one does not understand.
+pub fn parse_line(line: &str) -> Option<Event> {
+    let event = serde_json::from_str::<Event>(line).ok()?;
+    (event.schema <= crate::model::SCHEMA).then_some(event)
 }
 
 /// A cursor over a growing log, for tailing it.
@@ -166,7 +174,7 @@ impl Tail {
             if piece.is_empty() {
                 continue;
             }
-            if let Ok(event) = serde_json::from_str::<Event>(piece) {
+            if let Some(event) = parse_line(piece) {
                 out.push(event);
             }
         }
@@ -205,6 +213,17 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(events[1].risk > events[0].risk);
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn event_without_schema_still_parses_and_newer_schema_is_skipped() {
+        // A line exactly as builds before versioning wrote it.
+        let old = r#"{"ts":1,"name":"x","source":"shim","lines":1,"risk":0,"band":"inert","mask":0,"worst":null,"synopsis":"prints results","notes":[],"blocked":false}"#;
+        let event = parse_line(old).expect("pre-versioning line parses");
+        assert_eq!(event.schema, 0);
+        let newer = old.replacen("{", &format!("{{\"schema\":{},", crate::model::SCHEMA + 1), 1);
+        assert!(parse_line(&newer).is_none(), "{newer}");
+        assert!(parse_line("{\"ts\":").is_none());
     }
 
     #[test]
