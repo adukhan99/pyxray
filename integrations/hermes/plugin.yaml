@@ -1,0 +1,38 @@
+name: pyxray
+version: "0.2.0"
+description: "See what the Python that Hermes is about to run will do, before it runs. Analyses every `terminal` and `execute_code` call (scripts, heredocs, -c one-liners, pipes), appends a one-line verdict to the tool result so the model can self-correct, escalates anything over your risk gate to the human-approval prompt, and writes a live feed the desktop pane and `pyx watch` both read. Pure static analysis, a few milliseconds per call, never breaks the tool."
+author: "adukhan99 (pyxray) / Hermes plugin by the pyxray project"
+license: MIT
+homepage: https://github.com/adukhan99/pyxray
+tags: [security, python, guard, hooks, desktop]
+manifest_version: 2
+hooks:
+  - pre_tool_call
+  - transform_tool_result
+provides_hooks:
+  - pre_tool_call
+  - transform_tool_result
+config_schema:
+  type: object
+  properties:
+    gate:
+      description: "Risk ceiling 0-100; anything above it goes to the approval prompt. Unset or 'off' means describe only. PYXRAY_GATE in the environment overrides this."
+      type: [integer, string, "null"]
+    mode:
+      description: "What an over-gate call gets: 'approve' (ask the human, default) or 'block' (refuse outright)."
+      type: string
+      enum: [approve, block]
+    warn_from:
+      description: "Append a verdict to the tool result from this band up: routine, check (default), read, or never."
+      type: string
+      enum: [routine, check, read, never]
+    tools:
+      description: "Tool names to inspect. Defaults to terminal and execute_code."
+      type: array
+      items: {type: string}
+    cards:
+      description: "Keep an HTML card of each recent snippet for the desktop pane (default true)."
+      type: boolean
+    max_cards:
+      description: "How many recent cards to keep (default 40)."
+      type: integer

@@ -67,7 +67,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install --upgrade pip maturin pytest
+      - run: python -m pip install --upgrade pip maturin pytest fastapi httpx
       - name: build the extension into the active Python
         run: maturin develop --release
       - name: build the binary (for the fallback backend)

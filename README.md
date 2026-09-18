@@ -172,7 +172,10 @@ never read your rc file, and many harnesses use `/bin/sh` rather than bash.
 ### As a harness hook
 
 Per-harness setup lives in `integrations/`: Claude Code, Hermes, OpenCode, and
-a tmux pane recipe. They all end up calling the same thing —
+a tmux pane recipe. Hermes gets a native plugin (`hermes plugins install
+adukhan99/pyxray/integrations/hermes`) with a pane in Hermes Desktop and the
+verdict appended to each tool result; the others end up calling the same
+thing —
 
 ```sh
 python3 -m pyxray.intercept --hook

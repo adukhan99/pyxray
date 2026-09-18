@@ -37,7 +37,7 @@ agent's `sh -c`, a Makefile, and a `subprocess.run` deep inside some library.
 | | how | notes |
 |---|---|---|
 | [Claude Code / Claude desktop](claude-code/) | plugin (`/plugin marketplace add adukhan99/pyxray`), or a `PreToolUse` hook in `settings.json` | `Bash` commands and `NotebookEdit` code cells; scripts are read relative to the call's `cwd` |
-| [Hermes](hermes/) | `hooks:` block in `~/.hermes/config.yaml` | two surfaces: `execute_code` takes Python directly, `terminal` takes a shell command |
+| [Hermes CLI / Hermes Desktop](hermes/) | native plugin (`hermes plugins install adukhan99/pyxray/integrations/hermes`), with a desktop pane | `terminal` and `execute_code`; verdict appended to the tool result, over-gate calls go to the approval prompt |
 | [OpenCode](opencode/) | plugin on `tool.execute.before` | blocks by throwing |
 | anything else | [PATH shim](shim/) | no API needed |
 

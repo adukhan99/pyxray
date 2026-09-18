@@ -1,5 +1,9 @@
 #!/bin/sh
-# Wire pyxray into Hermes.
+# Wire pyxray into Hermes through the shell-hook bridge.
+#
+# This is the fallback. The supported route is the plugin in this directory:
+#   hermes plugins install adukhan99/pyxray/integrations/hermes
+# Use this only on a Hermes without the plugin API. Never run both.
 #
 #   integrations/hermes/install.sh            print the block to paste
 #   integrations/hermes/install.sh --append   append it, if it is safe to
