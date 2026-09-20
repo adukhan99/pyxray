@@ -27,7 +27,10 @@ fn examples() -> Vec<(String, String)> {
                 } else {
                     format!("{parent}_{stem}")
                 };
-                out.push((name, std::fs::read_to_string(&path).unwrap()));
+                let source = std::fs::read_to_string(&path)
+                    .unwrap()
+                    .replace("\r\n", "\n");
+                out.push((name, source));
             }
         }
     }

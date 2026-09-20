@@ -10,7 +10,7 @@ use pyxray_render::theme::THEMES;
 
 fn sketchy() -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/sketchy.py");
-    std::fs::read_to_string(path).unwrap()
+    std::fs::read_to_string(path).unwrap().replace("\r\n", "\n")
 }
 
 #[test]

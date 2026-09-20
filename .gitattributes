@@ -1,0 +1,19 @@
+# Normalize line endings to LF across all platforms
+* text=auto eol=lf
+
+# Explicit LF for code, tests, docs, configs
+*.rs text eol=lf
+*.py text eol=lf
+*.snap text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+*.bats text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

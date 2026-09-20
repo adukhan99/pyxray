@@ -35,12 +35,13 @@ jobs:
       - name: smoke
         shell: bash
         run: |
-          ./target/release/pyx --check 40 examples/sketchy.py -w 100 && exit 1 || test $? -eq 3
-          ! NO_COLOR=1 CLICOLOR_FORCE=1 ./target/release/pyx --color auto -l line examples/tiny.py | grep -q $'\e' || true
-          ! ./target/release/pyx --color never -l line examples/tiny.py | grep -q $'\e'
-          ./target/release/pyx --color always -l line examples/tiny.py | grep -q $'\e'
-          ./target/release/pyx -t mono -l card -w 100 examples/sketchy.py | LC_ALL=C grep -q '[^ -~]' && exit 1 || true
-          echo 'cd examples && python3 tiny.py' | ./target/release/pyx extract --cwd . | grep -q '"label":"tiny.py"'
+          bin=./target/release/pyx$([ '${{ runner.os }}' = Windows ] && echo .exe)
+          "$bin" --check 40 examples/sketchy.py -w 100 && exit 1 || test $? -eq 3
+          ! NO_COLOR=1 CLICOLOR_FORCE=1 "$bin" --color auto -l line examples/tiny.py | grep -q $'\e' || true
+          ! "$bin" --color never -l line examples/tiny.py | grep -q $'\e'
+          "$bin" --color always -l line examples/tiny.py | grep -q $'\e'
+          "$bin" -t mono -l card -w 100 examples/sketchy.py | LC_ALL=C grep -q '[^ -~]' && exit 1 || true
+          echo 'cd examples && python3 tiny.py' | "$bin" extract --cwd . | grep -q '"label":"tiny.py"'
       - uses: actions/upload-artifact@v4
         with:
           name: pyx-${{ matrix.os }}
@@ -79,7 +80,11 @@ jobs:
         env:
           PYXRAY_FORCE_BINARY: "1"
         run: |
-          export PYXRAY_BIN="$PWD/target/release/pyx$([ '${{ runner.os }}' = Windows ] && echo .exe)"
+          if [ '${{ runner.os }}' = Windows ]; then
+            export PYXRAY_BIN="$(pwd -W 2>/dev/null || pwd)/target/release/pyx.exe"
+          else
+            export PYXRAY_BIN="$PWD/target/release/pyx"
+          fi
           python -m pytest python/tests -q
 
   shell:

@@ -240,6 +240,16 @@ def _find_binary() -> str | None:
     if override := os.environ.get("PYXRAY_BIN"):
         if Path(override).is_file():
             return override
+        if (
+            os.name == "nt"
+            and override.startswith("/")
+            and len(override) > 2
+            and override[2] == "/"
+            and override[1].isalpha()
+        ):
+            drive_path = Path(f"{override[1]}:{override[2:]}")
+            if drive_path.is_file():
+                return str(drive_path)
         # A stale override should not disable the fallback entirely.
         print(f"pyxray: PYXRAY_BIN={override!r} does not exist; looking elsewhere",
               file=sys.stderr)
