@@ -1,48 +1,68 @@
 #!/bin/sh
 # pyxray PATH shim.
 #
-# A real executable named python3, placed earlier on PATH than the real one.
-# Unlike a shell function this works for *anything* that spawns a process —
-# an agent's `sh -c`, a Makefile, a subprocess.run() deep inside some library —
-# because it is resolved by execvp, not by a shell that read your rc file.
+# A real executable named python3 (and, via a symlink, python), placed
+# earlier on PATH than the real one. Unlike a shell function this works for
+# *anything* that spawns a process — an agent's `sh -c`, a Makefile, a
+# subprocess.run() deep inside some library — because it is resolved by
+# execvp, not by a shell that read your rc file.
 #
 # Install with integrations/shim/install.sh, or by hand: put this directory
-# early on PATH and make sure PYTHONPATH can see the pyxray package.
+# early on PATH and make sure the pyxray package is importable (pip install,
+# or PYTHONPATH pointing at a checkout's python/ directory).
 #
-# PYXRAY_OFF=1 makes this a no-op passthrough.
+# PYXRAY_OFF=1 makes this a no-op passthrough. Whatever happens, the user's
+# command runs: a broken observer is worse than no observer.
 
-set -e
+# Which interpreter we are standing in for: python3, or python.
+me=$(basename -- "$0")
+case "$me" in
+    python|python3|python3.*) ;;
+    *) me=python3 ;;
+esac
 
-# Find the real interpreter: the first python3 on PATH that is not in this
+# Find the real interpreter: the first `$me` on PATH that is not in this
 # directory. Without this the shim would exec itself forever.
-shim_dir=$(cd -- "$(dirname -- "$0")" && pwd)
+shim_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
 real=""
 IFS=:
 for dir in $PATH; do
     [ -n "$dir" ] || dir=.
-    case "$(cd -- "$dir" 2>/dev/null && pwd)" in
+    case "$(cd -- "$dir" 2>/dev/null && pwd -P)" in
         "$shim_dir") continue ;;
     esac
-    if [ -x "$dir/python3" ] && [ ! -d "$dir/python3" ]; then
-        real="$dir/python3"
+    if [ -x "$dir/$me" ] && [ ! -d "$dir/$me" ]; then
+        real="$dir/$me"
         break
     fi
 done
 unset IFS
 
 if [ -z "$real" ]; then
-    echo "pyxray shim: no real python3 found on PATH" >&2
+    echo "pyxray shim: no real $me found on PATH" >&2
     exit 127
 fi
 
-if [ "${PYXRAY_OFF:-0}" = "1" ] || [ $# -eq 0 ]; then
+if [ "${PYXRAY_OFF:-0}" = "1" ]; then
     exec "$real" "$@"
 fi
 
-# If the package is not importable, get out of the way rather than break the
-# user's command — a broken observer is worse than no observer.
-if ! "$real" -c 'import pyxray' >/dev/null 2>&1; then
+# No arguments and a terminal on stdin is the REPL: nothing to analyse.
+# No arguments and a *pipe* on stdin is a script, which the interceptor reads.
+if [ $# -eq 0 ] && [ -t 0 ]; then
     exec "$real" "$@"
 fi
 
-exec "$real" -m pyxray.intercept -- "$real" "$@"
+# One interpreter start for the check and the analysis together: try to
+# import the interceptor, and if that fails, become the real interpreter on
+# the spot. The interceptor itself execs the real interpreter when it is done,
+# so the common case costs one extra process, not two.
+exec "$real" -c '
+import os, sys
+real = sys.argv[1]
+try:
+    from pyxray.intercept import main
+except Exception:
+    os.execv(real, [real] + sys.argv[2:])
+raise SystemExit(main(["--", real] + sys.argv[2:]))
+' "$real" "$@"

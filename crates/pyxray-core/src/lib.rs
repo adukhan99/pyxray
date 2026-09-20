@@ -12,19 +12,54 @@
 pub mod analyze;
 pub mod digest;
 pub mod effects;
+pub mod extract;
 pub mod feed;
 pub mod model;
 pub mod source;
 
+pub use extract::{extract_all, extract_python, ExtractOpts, Extracted, Invocation};
 pub use model::*;
 
 use ruff_python_parser::{parse_unchecked, ParseOptions};
 use source::Src;
 
-/// Analyse a snippet. Never fails: a snippet that does not parse still yields
-/// a report built from whatever the recovering parser salvaged, with the
-/// syntax errors attached as diagnostics — which is the useful behaviour when
-/// the input came from a language model rather than a file on disk.
+/// Analyse a snippet, and survive it. Runs [`xray`] on its own thread with a
+/// generous stack, and if anything inside panics — a parser edge case, an
+/// assumption the input broke — returns [`Report::failed`] instead of taking
+/// the process down. This is the entry point the CLI and the Python
+/// extension use: the analyser sits in front of somebody else's command, and
+/// crashing there is worse than saying "could not look".
+pub fn xray_guarded(source: &str, name: &str) -> Report {
+    const STACK: usize = 64 << 20;
+    let src = source.to_string();
+    let nm = name.to_string();
+    let spawned = std::thread::Builder::new()
+        .name("pyxray-analyse".into())
+        .stack_size(STACK)
+        .spawn(move || xray(&src, &nm));
+    let outcome = match spawned {
+        Ok(handle) => handle.join(),
+        // Could not even start a thread: analyse inline and accept the risk.
+        Err(_) => return xray(source, name),
+    };
+    match outcome {
+        Ok(report) => report,
+        Err(payload) => {
+            let why = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "internal error".to_string());
+            Report::failed(source, name, &why)
+        }
+    }
+}
+
+/// Analyse a snippet. Never fails on bad *Python*: a snippet that does not
+/// parse still yields a report built from whatever the recovering parser
+/// salvaged, with the syntax errors attached as diagnostics — which is the
+/// useful behaviour when the input came from a language model rather than a
+/// file on disk. Internal panics are not caught here; see [`xray_guarded`].
 pub fn xray(source: &str, name: &str) -> Report {
     let src = Src::new(source);
     let parsed = parse_unchecked(source, ParseOptions::from(ruff_python_parser::Mode::Module));
@@ -56,7 +91,7 @@ pub fn xray(source: &str, name: &str) -> Report {
         label: name.to_string(),
         detail: None,
         line: 1,
-        end_line: src.line_count(),
+        end_line: src.line_count().max(1),
         depth: 0,
         own_effects: EffectMask::default(),
         effects: EffectMask::default(),
@@ -119,9 +154,6 @@ pub fn xray(source: &str, name: &str) -> Report {
 
     let texture = digest::texture(&src, &spine, &hits);
     let (synopsis, headline) = if source.trim().is_empty() {
-        // `LineIndex` counts an empty string as one line, which would have the
-        // header claim there is something here.
-        metrics.lines_total = 0;
         metrics.lines_code = 0;
         ("nothing to run".to_string(), Vec::new())
     } else {
@@ -129,6 +161,7 @@ pub fn xray(source: &str, name: &str) -> Report {
     };
 
     Report {
+        schema: SCHEMA,
         meta: Meta {
             name: name.to_string(),
             bytes: source.len(),
@@ -146,102 +179,6 @@ pub fn xray(source: &str, name: &str) -> Report {
         diagnostics,
         source: source.lines().map(|l| l.to_string()).collect(),
     }
-}
-
-/// Pull the Python body out of the shell command a model typically emits —
-/// `python3 <<'EOF' … EOF`, `python -c '…'`, or a bare script. Returns the
-/// source and a label describing where it came from.
-pub fn extract_python(input: &str) -> (String, String) {
-    let trimmed = input.trim_start();
-
-    // heredoc: python3 <<'PY' … PY
-    if let Some(rest) = strip_python_prefix(trimmed) {
-        if let Some(idx) = rest.find("<<") {
-            let after = &rest[idx + 2..];
-            let after = after.strip_prefix('-').unwrap_or(after);
-            let after = after.trim_start();
-            let (delim, body_start) = read_delimiter(after);
-            if let Some(delim) = delim {
-                let body = &after[body_start..];
-                let body = body.strip_prefix('\n').unwrap_or(body);
-                if let Some(end) = find_terminator(body, &delim) {
-                    return (body[..end].to_string(), format!("heredoc <<{delim}"));
-                }
-                return (
-                    body.to_string(),
-                    format!("heredoc <<{delim} (unterminated)"),
-                );
-            }
-        }
-        // python -c "…"
-        for flag in ["-c ", "-c'", "-c\""] {
-            if let Some(pos) = rest.find(flag) {
-                let after = rest[pos + 2..].trim_start();
-                if let Some(code) = unquote(after) {
-                    return (code, "python -c".to_string());
-                }
-            }
-        }
-    }
-    (input.to_string(), "<stdin>".to_string())
-}
-
-fn strip_python_prefix(s: &str) -> Option<&str> {
-    for prefix in ["python3 ", "python ", "python3.", "uv run python", "py "] {
-        if let Some(rest) = s.strip_prefix(prefix) {
-            return Some(rest);
-        }
-    }
-    None
-}
-
-/// Read a heredoc delimiter, quoted or bare, returning it plus the offset just
-/// past it.
-fn read_delimiter(s: &str) -> (Option<String>, usize) {
-    let bytes = s.as_bytes();
-    match bytes.first() {
-        Some(&q @ (b'\'' | b'"')) => {
-            let rest = &s[1..];
-            match rest.find(q as char) {
-                Some(end) => (Some(rest[..end].to_string()), end + 2),
-                None => (None, 0),
-            }
-        }
-        Some(_) => {
-            let end = s.find(|c: char| c.is_whitespace()).unwrap_or(s.len());
-            let word = &s[..end];
-            if word.is_empty() {
-                (None, 0)
-            } else {
-                (Some(word.to_string()), end)
-            }
-        }
-        None => (None, 0),
-    }
-}
-
-/// A heredoc ends at a line that is exactly the delimiter, allowing for the
-/// leading tabs that `<<-` permits.
-fn find_terminator(body: &str, delim: &str) -> Option<usize> {
-    let mut offset = 0;
-    for line in body.split_inclusive('\n') {
-        if line.trim_end_matches(['\n', '\r']).trim_start_matches('\t') == delim {
-            return Some(offset);
-        }
-        offset += line.len();
-    }
-    None
-}
-
-fn unquote(s: &str) -> Option<String> {
-    let mut chars = s.chars();
-    let quote = chars.next()?;
-    if quote != '\'' && quote != '"' {
-        return None;
-    }
-    let rest = &s[quote.len_utf8()..];
-    let end = rest.rfind(quote)?;
-    Some(rest[..end].to_string())
 }
 
 #[cfg(test)]

@@ -21,6 +21,8 @@ __all__ = [
     "analyze",
     "render",
     "extract",
+    "extract_all",
+    "classify_argv",
     "look",
     "feed",
     "feed_path",
@@ -74,8 +76,30 @@ def render(
 
 
 def extract(command: str) -> tuple[str, str]:
-    """Pull the Python out of ``python3 <<'EOF' … EOF`` and friends."""
+    """The first piece of Python in a shell command, as ``(source, label)``.
+
+    Returns the command itself, labelled ``<stdin>``, when it does not look
+    like a wrapped snippet — on the assumption that it was Python already.
+    """
     return engine().extract(command)
+
+
+def extract_all(
+    command: str, cwd: str | None = None, read_files: bool = True
+) -> list[dict[str, Any]]:
+    """Every piece of Python a shell command would run, in command order.
+
+    Each item is ``{"source", "label", "path", "segment"}``. Script paths are
+    read relative to ``cwd`` (the harness usually knows it); ``read_files=False``
+    reports them without reading. Heredocs, ``-c``, ``bash -c``, ``cat f | py``,
+    ``cd x && python3 …`` and the usual wrappers are all understood.
+    """
+    return engine().extract_all(command, cwd=cwd, read_files=read_files)
+
+
+def classify_argv(args: list[str]) -> dict[str, Any]:
+    """Read an interpreter's own argv: ``{"code", "module", "script", "stdin"}``."""
+    return engine().classify_argv(list(args))
 
 
 def look(

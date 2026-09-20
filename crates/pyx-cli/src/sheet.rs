@@ -43,7 +43,7 @@ risk {}</p><p class=\"syn\">{}</p></header>\n",
         "<section><h2>Layouts</h2><p class=\"note\">Theme held at <code>{}</code>. Pick how much you want to see at once.</p><div class=\"grid\">\n",
         pick.id
     ));
-    for l in Layout::all() {
+    for l in Layout::gallery() {
         out.push_str(&format!(
             "<figure class=\"card\"><figcaption><b>{}</b><span>{}</span></figcaption>{}</figure>\n",
             l.id(),
@@ -120,6 +120,5 @@ const HEAD: &str = r#"<!doctype html>
   figcaption span { color:var(--dim); font-size:13px; }
   pre.pyxray { font: 12.5px/1.3 "JetBrains Mono","Fira Code","SF Mono","DejaVu Sans Mono",ui-monospace,monospace;
                margin:0; padding:16px; white-space:pre; overflow-x:auto; }
-  @media (min-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 </style></head><body><main>
 "#;

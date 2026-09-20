@@ -1,3 +1,4 @@
+# Shell-hook fallback — the plugin (README.md) is the supported route.
 # Paste this into ~/.hermes/config.yaml (top level).
 #
 # Hermes matches `matcher` as a regex against the tool name, and only honours

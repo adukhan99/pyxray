@@ -11,19 +11,20 @@ reading and just run it.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────┐
-│ pyxray  sketchy.py                       22 lines · 16 statements · depth 2 · cx 2 │
-│ makes 2 network calls → DELETES /tmp/stage → evaluates code at runtime → runs 2 …  │
-│ risk ██████████████████  100  read it first                                        │
+│ pyxray  sketchy.py               21 lines · 16 statements · depth 2 · cyclomatic 2 │
+│ reads the environment → makes 2 network calls → DELETES /tmp/stage → evaluates co… │
+│ risk ██████████████████  100  read it first                      ·▸× ≈»§ ‡ ···· ¶· │
 └────────────────────────────────────────────────────────────────────────────────────┘
 ┌─ C A P A B I L I T I E S ──────────────────────────────────────────────────────────┐
-│  ≈ net 2!   » shell 2!   × delete 1!   ‡ eval 1!   § env 2   ▸ write 3   · print 1 │
+│  ≈ net 2!   § env 2!   » shell 2!   × delete 1!   ‡ eval 1!   ▸ write 3   ¶ print 1│
 └────────────────────────────────────────────────────────────────────────────────────┘
 ┌─ W H A T   I T   D O E S ──────────────────────────────────────────────────────────┐
-│    4   § getenv   API_TOKEN                                                        │
-│    7 ! × rmtree   /tmp/stage         ! recursively deletes a directory             │
-│   10 ! ≈ GET      https://…/payload  ! verify=False — TLS certificates not checked │
-│   12 ! ‡ unpickle pickle.loads       ! unpickling runs arbitrary code              │
-│   17 ! » run      bash {name}.sh     ! shell=True — the argument goes through sh   │
+│    4 ! § getenv   API_TOKEN                  ! reads a secret from the environment │
+│    7 ! × rmtree   /tmp/stage             ! recursively deletes a directory; ignor… │
+│   10 ! ≈ GET      https://example.invali…! verify=False — TLS certificates are no… │
+│   12 ! ‡ unpickle pickle.loads                    ! unpickling runs arbitrary code │
+│   17 ! » run      f"bash {STAGING}/{name…! runs an external command; shell=True —… │
+│   20 ! » run      ["rm", "-rf", STAGING] ! runs an external command; recursive de… │
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -35,11 +36,20 @@ warns you about.
 
 ## Install
 
-Needs a Rust toolchain (1.96+, for the Ruff parser) and Python 3.9+.
+Linux, macOS and Windows.
+
+```sh
+pip install pyxray          # the package, the interceptor, and the pyx binary
+cargo install pyx-cli       # just the binary, from source
+```
+
+The wheels carry a `pyx` for their platform; `pip install` is the whole
+setup. From a checkout, with a Rust toolchain (1.96+, for the Ruff parser —
+`rust-toolchain.toml` pins it) and Python 3.9+:
 
 ```sh
 make release        # builds target/release/pyx
-make install-ext    # puts the Python extension next to the package
+make install-ext    # builds the extension into your Python (maturin develop)
 ```
 
 If `$HOME` is small or quota'd — cargo's registry plus a release build runs to
@@ -52,6 +62,12 @@ source env.sh
 
 `env.sh` also sources `env.local.sh` if you have one, which is gitignored.
 
+On Windows: the hook (below) is the route that catches an agent; the
+`.cmd` and PowerShell shims are for what you type yourself, because
+`CreateProcess("python3")` does not resolve a `.cmd`. The feed lives under
+`%LOCALAPPDATA%\pyxray\`. Use Windows Terminal (or `chcp 65001`) for the
+glyphs, or `-t mono` for pure ASCII.
+
 ## Use it
 
 ```sh
@@ -61,14 +77,24 @@ cat script.py | pyx                 # from a pipe
 pyx --tui script.py                 # interactive; cycle themes and layouts live
 pyx --format json script.py | jq    # the whole report as data
 pyx --format svg -o x.svg script.py # for a document
+pyx --check 40 script.py            # exit 3 above a risk of 40; nothing runs
+NO_COLOR=1 pyx script.py            # honoured, as is --color always|never
 ```
 
 Everything is themeable and every visual axis is a flag:
 
 ```sh
-pyx --list                          # themes, layouts, formats
+pyx --list                          # themes, layouts, formats, feed path
+pyx --list --format json            # the same with every palette colour
 pyx -t carbon -l flow -i glyph script.py
 pyx --contact-sheet sheet.html script.py   # every combination, one page
+```
+
+And the piece the hooks are built on is a command of its own:
+
+```sh
+echo 'cd build && python3 gen.py --fast' | pyx extract --cwd .
+# [{"source": "…the contents of build/gen.py…", "label": "gen.py", …}]
 ```
 
 ### Watching an agent
@@ -131,10 +157,13 @@ pyx --exec --gate 40 script.py      # refuse outright above a risk of 40
 integrations/shim/install.sh --print >> ~/.bashrc
 ```
 
-A real executable named `python3`, earlier on PATH than the real one. This is
-the version that catches an agent, because it is resolved by `execvp` — by any
-process, including the `sh -c` a harness spawns, a Makefile, or a
-`subprocess.run` deep inside a library.
+A real executable named `python3` (and `python`), earlier on PATH than the
+real one. It is resolved by `execvp` — by any process, including the `sh -c`
+a harness spawns, a Makefile, or a `subprocess.run` deep inside a library —
+so it catches those. It does not catch `python3.12`, `uv run`, `poetry run`
+or a virtualenv's own interpreter, which resolve to other files; the harness
+hook, below, sees all of those because it reads the command rather than
+standing in for the interpreter.
 
 `shell/pyxray.sh` also defines a `python3` shell *function*, which is fine for
 what you type yourself but will not catch an agent: non-interactive shells
@@ -143,15 +172,31 @@ never read your rc file, and many harnesses use `/bin/sh` rather than bash.
 ### As a harness hook
 
 Per-harness setup lives in `integrations/`: Claude Code, Hermes, OpenCode, and
-a tmux pane recipe. They all end up calling the same thing —
+a tmux pane recipe. Hermes gets a native plugin (`hermes plugins install
+adukhan99/pyxray/integrations/hermes`) with a pane in Hermes Desktop and the
+verdict appended to each tool result; the others end up calling the same
+thing —
 
 ```sh
 python3 -m pyxray.intercept --hook
 ```
 
-— which reads a `PreToolUse`-shaped payload on stdin, finds the Python in it
-(whether the tool takes Python directly or a shell command with a heredoc
-inside), records it, and asks the harness to stop only if you set a gate.
+— which reads a `PreToolUse`-shaped payload on stdin, finds the Python in it,
+records it, and asks the harness to stop only if you set a gate. "Finds the
+Python" means reading the command the way a shell would: `python3 script.py`
+(the file is read, relative to the call's `cwd`), `cd build && python3 …`,
+`env`/`sudo`/`nohup`/`VAR=1` in front, `python3.12`, `uv run`, `poetry run`,
+a heredoc, `-c`, `bash -c "…"`, `cat gen.py | python3`, and every piece of a
+`;`/`&&` chain. The 75 cases in `tests/fixtures/extract_cases.json` are the
+contract, and the hook never fails the tool call: a missing engine or a bad
+payload exits 0 silently (`PYXRAY_DEBUG=1` says why).
+
+The Claude Code plugin is the same for the terminal and the desktop app:
+
+```
+/plugin marketplace add adukhan99/pyxray
+/plugin install pyxray@pyxray
+```
 
 ### From Python
 
@@ -162,8 +207,11 @@ report = pyxray.analyze(source)
 report["meta"]["synopsis"]      # 'reads 2 files → computes with pandas → writes 3 files'
 report["metrics"]["risk"]       # 22
 report["effects"][0]            # {'effect': 'fs_read', 'verb': 'read', 'target': 'data/in.csv', …}
+report["schema"]                # 1 — the JSON contract is versioned
 
 print(pyxray.render(source, theme="carbon", layout="card", width=100))
+
+pyxray.extract_all("cd build && python3 gen.py")   # every snippet a command runs
 ```
 
 ---
@@ -179,8 +227,8 @@ Effects are grouped into thirteen capabilities, each with a severity:
 | `×` | deletes files | always |
 | `≈` | network | POST/PUT/DELETE, `verify=False`, downloads to disk |
 | `»` | runs commands | always; worse with `shell=True` |
-| `§` | environment | reading a secret, `getpass` |
-| `‡` | dynamic code | `eval`, `exec`, `pickle.loads`, `torch.load`, `yaml.load` |
+| `§` | environment | reading a secret-looking name (`*_TOKEN`, `*_SECRET`, `*_KEY`, `PASSWORD`…), `getpass`; writes to `os.environ` and `sys.path` are notable |
+| `‡` | dynamic code | `eval`, `exec`, `pickle.loads`, `torch.load`, `yaml.load`, `numpy.load(allow_pickle=True)`, `runpy`, `ctypes` |
 | `¶` | prints | — |
 | `?` | randomness | — |
 | `○` | time | — |
@@ -189,12 +237,19 @@ Effects are grouped into thirteen capabilities, each with a severity:
 | `■` | exits | `os._exit` |
 
 Resolution is more than name matching. Import aliases are unwound (`np.load` →
-`numpy.load`); values are tracked well enough to resolve methods on them
-(`fh = open(p)` … `fh.write(x)` is a write, and it names `p` as the target);
-string constants are folded so `rmtree(STAGE)` shows `/tmp/stage` rather than
-`STAGE`; `Path('out') / 'x.json'` stays a path; a function you defined called
-`open` is not mistaken for the builtin; and shell fragments inside arguments
-(`rm -rf`, `curl … | sh`, `sudo`) escalate whatever they are attached to.
+`numpy.load`, `from os import *` then `system(…)` → `os.system`, `f =
+os.system` then `f(…)`, `getattr(os, "remove")`, `__import__("os").system`);
+values are tracked well enough to resolve methods on them (`fh = open(p)` …
+`fh.write(x)` is a write, and it names `p` as the target; a socket, a database
+connection, a tar archive or a `requests.Session` keep reporting after they
+are made); string constants are folded so `rmtree(STAGE)` shows `/tmp/stage`
+rather than `STAGE`, and a constant inside one function is not mistaken for a
+module-level one; `Path('out') / 'x.json'` stays a path; a function you defined
+called `open` shadows the builtin in its own scope and nowhere else (a method
+named `eval` somewhere in a class does not switch the check off for the whole
+file); and shell fragments inside a call's own arguments (`rm -rf`, `curl … |
+sh`, `sudo`) escalate whatever they are attached to — but only things that
+touch the world, so `print("run: pip install foo")` stays inert.
 
 The risk score is driven by severity and by *combinations* — fetching and then
 executing scores higher than doing either twice.
@@ -205,15 +260,17 @@ the score:
 | band | when | reads as |
 |---|---|---|
 | inert | nothing notable | one faint cell |
-| routine | notable work, any amount of it | one green cell |
-| check it | anything at caution severity | two amber cells |
+| routine | notable work, any amount of it (or a score of 15+) | one green cell |
+| check it | anything at caution severity, or notable work scoring 45+ | two amber cells |
 | read it first | caution, and a score at 60 or above | three red cells |
 
 Severity leads deliberately. Volume must not be able to impersonate danger: a
 script that writes three files is doing ordinary work and stays green at a
-score of 30, while one `shutil.rmtree` is worth stopping for at the same score.
-Colour and cell-count say the same thing twice, so the band survives a log
-file, a screenshot, and a reader who does not see the hue.
+score of 30, while one `shutil.rmtree` is worth stopping for at the same score;
+a hundred `print`s add at most 12 to the score and stay inert. Colour,
+cell-count and the word beside them all come from the same band, so they
+cannot disagree, and the band survives a log file, a screenshot, and a reader
+who does not see the hue.
 
 ## What it does not do
 
@@ -221,8 +278,17 @@ file, a screenshot, and a reader who does not see the hue.
   `getattr(os, "rem" + "ove")` will not be caught.
 - It does not follow imports. A call into another module of your own is a call
   into a black box.
+- It cannot analyse what it never sees. A hook reads the command an agent
+  runs; `python3 -m somemodule` names code that is not in the command, and a
+  `curl … | python3` arrives as a pipe from the network. Both are recorded
+  with an empty source and a label saying why, so the feed shows a row
+  rather than nothing.
 - A low score is not a safety claim. It is "nothing in this file's AST looks
   dangerous", which is a much smaller statement.
+- Nesting deeper than a couple of hundred levels is skipped, with a warning
+  in the report — and an internal failure yields an honest "could not
+  analyse" report rather than a crash, since the analyser sits in front of
+  somebody else's command.
 
 Treat it as a way to read faster, not as a way to stop reading.
 
@@ -241,6 +307,13 @@ python/pyxray          the Python package, the interceptor and the hook
 `pyxray-core` has no idea how anything is drawn, and `pyxray-render` has no
 idea what Python is. A new look is a `Theme` value; a new arrangement is a
 `Layout` arm; a new output format is a function over a ratatui `Buffer`.
+Finding the Python inside a shell command is `pyxray-core::extract`, the one
+implementation the hook, the shim and `pyx extract` all use.
+
+The JSON report and every feed line carry `"schema": 1`. A field added with a
+default does not bump it; a renamed or repurposed field does, and a reader
+skips feed lines newer than it understands. Capability bits are append-only,
+because the feed stores the mask as an integer.
 
 Layouts are *planned* before they are drawn — `layout::plan` returns the exact
 rectangle each panel will occupy — so measuring for a file and fitting into a
@@ -248,9 +321,9 @@ live terminal are the same code path and cannot drift apart.
 
 ## Looks
 
-Seven themes, four layouts, three ways of labelling effects. `make sheet`
-renders every combination against your own code so a look can be chosen by
-comparison:
+Seven themes, six layouts (four for reading, `line` and `auto` for a stream),
+three ways of labelling effects. `make sheet` renders every combination
+against your own code so a look can be chosen by comparison:
 
 | theme | |
 |---|---|
@@ -259,14 +332,16 @@ comparison:
 | `paper` | Daylight. Warm paper ground, ink type, rules instead of boxes. |
 | `carbon` | Product UI. Neutral greys, one blue accent, rounded frames, tidy. |
 | `amber` | Phosphor CRT. One hue, brightness does the work, bracketed panels. |
-| `ansi` | Sixteen colours only. Survives any terminal, tmux and SSH session. |
-| `mono` | No colour at all. Structure carried entirely by glyphs and weight. |
+| `ansi` | Sixteen colours only — emitted as the classic 16-colour codes, never RGB. Survives any terminal, tmux and SSH session. |
+| `mono` | No colour and no Unicode at all: pure ASCII, structure carried entirely by glyphs and weight. |
 
 Every role in every colour theme clears 3:1 against its own background, and
-body text runs 11:1 to 17.6:1.
+body text runs 11:1 to 17.6:1; `make audit` checks it and fails otherwise.
 
 | layout | |
 |---|---|
+| `line` | One row: band, barcode, score, synopsis. What the feed is made of. |
+| `auto` | `line` when dull, `card` when not. The interception default. |
 | `card` | A glance: synopsis, risk, capabilities, effect timeline. |
 | `dashboard` | Two columns: structure on the left, findings on the right. |
 | `stack` | One column, everything, in reading order. |
@@ -279,9 +354,9 @@ body text runs 11:1 to 17.6:1.
 | | |
 |---|---|
 | binary | 2.3 MB, no runtime dependencies |
-| a 60-line snippet | ~5.4 ms end to end, of which ~3.2 ms is process startup |
+| a 60-line snippet | ~5.4 ms end to end for `pyx`, of which ~3.2 ms is process startup; a hook adds one interpreter start |
 | a 3600-line file | ~14 ms |
-| tests | 38 (22 detection, 9 API, 6 render, 1 doc) |
+| tests | 99 Rust (48 detection, 75 shared extraction cases, golden snapshots of every example and every theme × layout), 26 Python on each backend, 9 shim scenarios; CI runs them on Linux, macOS and Windows |
 
 ## Licence
 

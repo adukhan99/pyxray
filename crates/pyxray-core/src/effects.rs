@@ -110,6 +110,16 @@ pub const RULES: &[Rule] = &[
     r("<path>.rglob",            FsRead, Info,    "glob",   Pos(0)),
     r("<path>.exists",           FsRead, Info,    "test",   NoArg),
     r("<path>.stat",             FsRead, Info,    "stat",   NoArg),
+    r("<path>.open",             FsRead, Info,    "open",   NoArg),
+    r("<path>.is_file",          FsRead, Info,    "test",   NoArg),
+    r("<path>.is_dir",           FsRead, Info,    "test",   NoArg),
+    r("<path>.resolve",          FsRead, Info,    "stat",   NoArg),
+    r("os.path.expanduser",      FsRead, Info,    "expand", Pos(0)),
+    r("shelve.open",             FsRead, Notable, "open",   Pos(0)),
+    r("<response>.json",         Net, Info,    "body",   NoArg),
+    r("<response>.text",         Net, Info,    "body",   NoArg),
+    r("<response>.read",         Net, Info,    "body",   NoArg),
+    r("<response>.iter_content", Net, Info,    "body",   NoArg),
     r("<file>.read",             FsRead, Info,    "read",   NoArg),
     r("<file>.readlines",        FsRead, Info,    "read",   NoArg),
     r("<file>.readline",         FsRead, Info,    "read",   NoArg),
@@ -150,6 +160,20 @@ pub const RULES: &[Rule] = &[
     r("<path>.mkdir",            FsWrite, Info,    "mkdir",  NoArg),
     r("<path>.touch",            FsWrite, Info,    "touch",  NoArg),
     r("<path>.rename",           FsWrite, Notable, "rename", Pos(0)),
+    r("<path>.replace",          FsWrite, Notable, "replace", Pos(0)),
+    r("<path>.chmod",            FsWrite, Notable, "chmod",  NoArg),
+    r("<path>.symlink_to",       FsWrite, Notable, "link",   Pos(0)),
+    r("<path>.hardlink_to",      FsWrite, Notable, "link",   Pos(0)),
+    rn("<archive>.extractall",   FsWrite, Notable, "unpack", NoArg, "extracts an archive; member paths decide where"),
+    rn("<archive>.extract",      FsWrite, Notable, "unpack", Pos(0), "extracts an archive; member paths decide where"),
+    r("zipfile.ZipFile",         FsRead,  Info,    "open",   Pos(0)),
+    r("tarfile.open",            FsRead,  Info,    "open",   Pos(0)),
+    r("tarfile.TarFile",         FsRead,  Info,    "open",   Pos(0)),
+    rn("<conn>.execute",         FsWrite, Notable, "sql",    Pos(0), "runs a database statement"),
+    rn("<conn>.executemany",     FsWrite, Notable, "sql",    Pos(0), "runs a database statement"),
+    rn("<conn>.executescript",   FsWrite, Notable, "sql",    Pos(0), "runs a database script"),
+    r("<conn>.commit",           FsWrite, Info,    "commit", NoArg),
+    r("sqlite3.connect",         FsRead,  Info,    "open",   Pos(0)),
     r("<file>.write",            FsWrite, Notable, "write",  NoArg),
     r("<file>.writelines",       FsWrite, Notable, "write",  NoArg),
     r("<frame>.to_csv",          FsWrite, Notable, "write",  Pos(0)),
@@ -167,6 +191,8 @@ pub const RULES: &[Rule] = &[
     rn("shutil.rmtree",   FsDelete, Caution, "rmtree", Pos(0), "recursively deletes a directory"),
     rn("<path>.unlink",   FsDelete, Caution, "delete", NoArg,  "removes a file from disk"),
     rn("<path>.rmdir",    FsDelete, Caution, "rmdir",  NoArg,  "removes a directory"),
+    rn("os.rmtree",       FsDelete, Caution, "rmtree", Pos(0), "recursively deletes a directory"),
+    rn("send2trash.send2trash", FsDelete, Notable, "trash", Pos(0), "moves a path to the trash"),
 
     // ---- network ----------------------------------------------------------
     r("requests.get",            Net, Notable, "GET",    Pos(0)),
@@ -198,6 +224,50 @@ pub const RULES: &[Rule] = &[
     r("<session>.get",           Net, Notable, "GET",    Pos(0)),
     rn("<session>.post",         Net, Caution, "POST",   Pos(0), "sends data to a remote host"),
     r("<session>.request",       Net, Notable, "request", Pos(1)),
+    rn("<session>.put",          Net, Caution, "PUT",    Pos(0), "sends data to a remote host"),
+    rn("<session>.patch",        Net, Caution, "PATCH",  Pos(0), "sends data to a remote host"),
+    rn("<session>.delete",       Net, Caution, "DELETE", Pos(0), "deletes a remote resource"),
+    r("<session>.head",          Net, Info,    "HEAD",   Pos(0)),
+    r("<session>.stream",        Net, Notable, "request", Pos(1)),
+    r("<socket>.connect",        Net, Notable, "connect", Pos(0)),
+    r("<socket>.connect_ex",     Net, Notable, "connect", Pos(0)),
+    rn("<socket>.bind",          Net, Notable, "listen", Pos(0), "opens a port"),
+    rn("<socket>.listen",        Net, Notable, "listen", NoArg,  "opens a port"),
+    r("<socket>.send",           Net, Notable, "send",   NoArg),
+    r("<socket>.sendall",        Net, Notable, "send",   NoArg),
+    r("<socket>.sendto",         Net, Notable, "send",   Pos(1)),
+    r("<socket>.recv",           Net, Info,    "recv",   NoArg),
+    r("httpx.put",               Net, Caution, "PUT",    Pos(0)),
+    r("httpx.patch",             Net, Caution, "PATCH",  Pos(0)),
+    r("httpx.delete",            Net, Caution, "DELETE", Pos(0)),
+    r("httpx.request",           Net, Notable, "request", Pos(1)),
+    r("httpx.stream",            Net, Notable, "request", Pos(1)),
+    r("aiohttp.request",         Net, Notable, "request", Pos(1)),
+    r("urllib.request.Request",  Net, Info,    "request", Pos(0)),
+    r("webbrowser.open",         Net, Notable, "browse", Pos(0)),
+    r("webbrowser.open_new",     Net, Notable, "browse", Pos(0)),
+    r("xmlrpc.client.ServerProxy", Net, Notable, "rpc",  Pos(0)),
+    r("imaplib.IMAP4",           Net, Notable, "mail",   Pos(0)),
+    r("imaplib.IMAP4_SSL",       Net, Notable, "mail",   Pos(0)),
+    r("poplib.POP3",             Net, Notable, "mail",   Pos(0)),
+    r("smtplib.SMTP_SSL",        Net, Notable, "mail",   Pos(0)),
+    rn("http.server.HTTPServer", Net, Notable, "listen", Pos(0), "opens a port"),
+    rn("socketserver.TCPServer", Net, Notable, "listen", Pos(0), "opens a port"),
+    r("psycopg2.connect",        Net, Notable, "connect", NoArg),
+    r("pymysql.connect",         Net, Notable, "connect", NoArg),
+    r("pymongo.MongoClient",     Net, Notable, "connect", Pos(0)),
+    r("redis.Redis",             Net, Notable, "connect", NoArg),
+    r("sqlalchemy.create_engine", Net, Notable, "connect", Pos(0)),
+    r("openai.OpenAI",           Net, Notable, "api",    NoArg),
+    r("anthropic.Anthropic",     Net, Notable, "api",    NoArg),
+    r("huggingface_hub.hf_hub_download", Net, Notable, "download", Pos(0)),
+    r("huggingface_hub.snapshot_download", Net, Notable, "download", Pos(0)),
+    r("transformers.AutoModel.from_pretrained", Net, Notable, "download", Pos(0)),
+    r("transformers.AutoTokenizer.from_pretrained", Net, Notable, "download", Pos(0)),
+    r("transformers.AutoModelForCausalLM.from_pretrained", Net, Notable, "download", Pos(0)),
+    r("torch.hub.load",          Net, Notable, "download", Pos(0)),
+    r("ftplib.FTP_TLS",          Net, Notable, "connect", Pos(0)),
+    rn("telnetlib.Telnet",       Net, Caution, "telnet", Pos(0), "opens an unencrypted session"),
 
     // ---- subprocess / shell ------------------------------------------------
     rn("subprocess.run",         Process, Caution, "run",   Pos(0), "runs an external command"),
@@ -213,6 +283,42 @@ pub const RULES: &[Rule] = &[
     rn("os.execvp",              Process, Caution, "exec",  Pos(0), "replaces this process"),
     rn("os.fork",                Process, Caution, "fork",  NoArg,  "forks the process"),
     rn("pty.spawn",              Process, Caution, "spawn", Pos(0), "spawns an interactive process"),
+    rn("os.execl",               Process, Caution, "exec",  Pos(0), "replaces this process"),
+    rn("os.execle",              Process, Caution, "exec",  Pos(0), "replaces this process"),
+    rn("os.execlp",              Process, Caution, "exec",  Pos(0), "replaces this process"),
+    rn("os.execlpe",             Process, Caution, "exec",  Pos(0), "replaces this process"),
+    rn("os.execve",              Process, Caution, "exec",  Pos(0), "replaces this process"),
+    rn("os.execvpe",             Process, Caution, "exec",  Pos(0), "replaces this process"),
+    rn("os.spawnl",              Process, Caution, "spawn", Pos(1), "spawns an external process"),
+    rn("os.spawnle",             Process, Caution, "spawn", Pos(1), "spawns an external process"),
+    rn("os.spawnlp",             Process, Caution, "spawn", Pos(1), "spawns an external process"),
+    rn("os.spawnv",              Process, Caution, "spawn", Pos(1), "spawns an external process"),
+    rn("os.spawnve",             Process, Caution, "spawn", Pos(1), "spawns an external process"),
+    rn("os.spawnvp",             Process, Caution, "spawn", Pos(1), "spawns an external process"),
+    rn("os.posix_spawn",         Process, Caution, "spawn", Pos(0), "spawns an external process"),
+    rn("os.posix_spawnp",        Process, Caution, "spawn", Pos(0), "spawns an external process"),
+    rn("os.forkpty",             Process, Caution, "fork",  NoArg,  "forks the process"),
+    rn("os.kill",                Process, Caution, "kill",  Pos(0), "signals another process"),
+    rn("os.killpg",              Process, Caution, "kill",  Pos(0), "signals a process group"),
+    rn("os.startfile",           Process, Caution, "open",  Pos(0), "opens a file with its default application"),
+    rn("os.setuid",              Process, Caution, "setuid", Pos(0), "changes the process's user"),
+    rn("os.setgid",              Process, Caution, "setgid", Pos(0), "changes the process's group"),
+    rn("asyncio.create_subprocess_exec", Process, Caution, "spawn", Pos(0), "spawns an external process"),
+    rn("asyncio.create_subprocess_shell", Process, Caution, "shell", Pos(0), "runs a command through the shell"),
+    rn("multiprocessing.Process.start", Process, Notable, "start", NoArg, "starts a worker process"),
+    r("<proc>.communicate",      Process, Info,    "await", NoArg),
+    r("<proc>.wait",             Process, Info,    "await", NoArg),
+    rn("<proc>.kill",            Process, Notable, "kill",  NoArg, "kills the child process"),
+    rn("<proc>.terminate",       Process, Notable, "kill",  NoArg, "terminates the child process"),
+    rn("<proc>.send_signal",     Process, Notable, "signal", Pos(0), "signals the child process"),
+    r("signal.signal",           Process, Info,    "handler", Pos(0)),
+    rn("signal.raise_signal",    Process, Notable, "signal", Pos(0), "raises a signal"),
+    rn("shutil.which",           Process, Info,    "which", Pos(0), "locates an executable"),
+    rn("pexpect.spawn",          Process, Caution, "spawn", Pos(0), "spawns an interactive process"),
+    rn("fabric.Connection",      Net,     Caution, "ssh",   Pos(0), "opens an SSH session"),
+    rn("docker.from_env",        Process, Caution, "docker", NoArg, "talks to the Docker daemon"),
+    rn("sh.Command",             Process, Caution, "run",   Pos(0), "runs an external command"),
+    rn("plumbum.local",          Process, Caution, "run",   Pos(0), "runs an external command"),
 
     // ---- environment / credentials ----------------------------------------
     r("os.getenv",               Env, Info,    "getenv", Pos(0)),
@@ -225,6 +331,27 @@ pub const RULES: &[Rule] = &[
     r("os.uname",                Env, Info,    "probe",  NoArg),
     r("os.getcwd",               Env, Info,    "probe",  NoArg),
     r("os.chdir",                Env, Notable, "chdir",  Pos(0)),
+    r("os.environ.update",       Env, Notable, "setenv", NoArg),
+    rn("os.environ.pop",         Env, Notable, "unsetenv", Pos(0), "removes an environment variable"),
+    rn("os.environ.clear",       Env, Caution, "unsetenv", NoArg, "clears the whole environment"),
+    rn("os.unsetenv",            Env, Notable, "unsetenv", Pos(0), "removes an environment variable"),
+    rn("sys.path.insert",        Env, Notable, "syspath", Pos(1), "changes where imports come from"),
+    rn("sys.path.append",        Env, Notable, "syspath", Pos(0), "changes where imports come from"),
+    rn("sys.path.extend",        Env, Notable, "syspath", Pos(0), "changes where imports come from"),
+    r("dotenv.dotenv_values",    Env, Notable, "dotenv", Pos(0)),
+    r("input",                   Env, Info,    "prompt", Pos(0)),
+    r("os.getlogin",             Env, Info,    "probe",  NoArg),
+    r("os.getpid",               Env, Info,    "probe",  NoArg),
+    r("socket.gethostname",      Env, Info,    "probe",  NoArg),
+    r("platform.platform",       Env, Info,    "probe",  NoArg),
+    r("platform.node",           Env, Info,    "probe",  NoArg),
+    r("sys.getrecursionlimit",   Env, Info,    "probe",  NoArg),
+    rn("sys.setrecursionlimit",  Env, Notable, "limit",  Pos(0), "raises the recursion limit"),
+    rn("resource.setrlimit",     Env, Notable, "limit",  Pos(0), "changes a resource limit"),
+    rn("os.umask",               Env, Notable, "umask",  Pos(0), "changes default file permissions"),
+    rn("keyring.get_password",   Env, Caution, "keyring", Pos(0), "reads a stored password"),
+    rn("netrc.netrc",            Env, Caution, "netrc",  NoArg,  "reads stored credentials"),
+    rn("boto3.Session",          Env, Notable, "aws",    NoArg,  "loads cloud credentials"),
 
     // ---- dynamic code ------------------------------------------------------
     rn("eval",                   Dynamic, Caution, "eval",   Pos(0), "evaluates code built at runtime"),
@@ -240,6 +367,38 @@ pub const RULES: &[Rule] = &[
     rn("torch.load",             Dynamic, Caution, "load",   Pos(0), "torch.load unpickles by default"),
     rn("ctypes.CDLL",            Dynamic, Caution, "dlopen", Pos(0), "loads native code"),
     rn("ctypes.cdll.LoadLibrary", Dynamic, Caution, "dlopen", Pos(0), "loads native code"),
+    rn("ctypes.WinDLL",          Dynamic, Caution, "dlopen", Pos(0), "loads native code"),
+    rn("ctypes.PyDLL",           Dynamic, Caution, "dlopen", Pos(0), "loads native code"),
+    rn("ctypes.OleDLL",          Dynamic, Caution, "dlopen", Pos(0), "loads native code"),
+    rn("ctypes.windll.LoadLibrary", Dynamic, Caution, "dlopen", Pos(0), "loads native code"),
+    r("ctypes.util.find_library", Dynamic, Info,   "dlfind", Pos(0)),
+    rn("marshal.load",           Dynamic, Caution, "unmarshal", Pos(0), "decodes raw code objects"),
+    rn("dill.load",              Dynamic, Caution, "unpickle", Pos(0), "unpickling runs arbitrary code"),
+    rn("joblib.load",            Dynamic, Caution, "unpickle", Pos(0), "joblib.load unpickles"),
+    rn("cloudpickle.load",       Dynamic, Caution, "unpickle", Pos(0), "unpickling runs arbitrary code"),
+    rn("cloudpickle.loads",      Dynamic, Caution, "unpickle", NoArg,  "unpickling runs arbitrary code"),
+    rn("pickle.Unpickler",       Dynamic, Caution, "unpickle", Pos(0), "unpickling runs arbitrary code"),
+    rn("pandas.read_pickle",     Dynamic, Caution, "unpickle", Pos(0), "unpickling runs arbitrary code"),
+    rn("numpy.lib.format.read_array", Dynamic, Notable, "load", Pos(0), "may unpickle"),
+    rn("yaml.unsafe_load",       Dynamic, Caution, "yaml",   Pos(0), "yaml.unsafe_load can construct arbitrary objects"),
+    rn("yaml.full_load",         Dynamic, Caution, "yaml",   Pos(0), "yaml.full_load can construct objects"),
+    rn("yaml.load_all",          Dynamic, Caution, "yaml",   Pos(0), "yaml.load_all without SafeLoader can construct objects"),
+    rn("importlib.reload",       Dynamic, Notable, "reload", Pos(0), "re-executes a module"),
+    rn("importlib.util.spec_from_file_location", Dynamic, Notable, "import", Pos(1), "imports a file as a module"),
+    rn("runpy.run_path",         Dynamic, Caution, "run",    Pos(0), "executes a file as a script"),
+    rn("runpy.run_module",       Dynamic, Caution, "run",    Pos(0), "executes a module as a script"),
+    rn("code.interact",          Dynamic, Notable, "repl",   NoArg,  "opens an interactive console"),
+    rn("code.InteractiveConsole", Dynamic, Notable, "repl",  NoArg,  "opens an interactive console"),
+    rn("pdb.set_trace",          Dynamic, Notable, "debug",  NoArg,  "stops in the debugger"),
+    rn("breakpoint",             Dynamic, Notable, "debug",  NoArg,  "stops in the debugger"),
+    rn("types.FunctionType",     Dynamic, Caution, "codeobj", Pos(0), "builds a function from a code object"),
+    rn("builtins.eval",          Dynamic, Caution, "eval",   Pos(0), "evaluates code built at runtime"),
+    rn("builtins.exec",          Dynamic, Caution, "exec",   Pos(0), "executes code built at runtime"),
+    rn("builtins.__import__",    Dynamic, Caution, "import", Pos(0), "imports a module chosen at runtime"),
+    rn("setattr",                Dynamic, Info,    "setattr", Pos(1), "sets an attribute chosen at runtime"),
+    rn("jsonpickle.decode",      Dynamic, Caution, "unpickle", Pos(0), "jsonpickle can construct arbitrary objects"),
+    rn("xml.etree.ElementTree.parse", FsRead, Info, "parse", Pos(0), "XML parsing"),
+    rn("atexit.register",        Dynamic, Info,    "atexit", Pos(0), "runs code at interpreter exit"),
 
     // ---- output -----------------------------------------------------------
     r("print",                   Stdout, Info, "print", Pos(0)),
@@ -556,10 +715,31 @@ pub fn produces(path: &str) -> ValueKind {
         | "requests.request"
         | "httpx.get"
         | "httpx.post"
+        | "httpx.put"
+        | "httpx.patch"
+        | "httpx.delete"
+        | "httpx.request"
+        | "<session>.get"
+        | "<session>.post"
+        | "<session>.put"
+        | "<session>.patch"
+        | "<session>.delete"
+        | "<session>.request"
         | "urllib.request.urlopen" => ValueKind::Response,
-        "subprocess.run" | "subprocess.Popen" => ValueKind::Process,
+        "subprocess.run"
+        | "subprocess.Popen"
+        | "asyncio.create_subprocess_exec"
+        | "asyncio.create_subprocess_shell"
+        | "pexpect.spawn" => ValueKind::Process,
         "socket.socket" | "socket.create_connection" => ValueKind::Socket,
-        "sqlite3.connect" | "psycopg2.connect" | "pymysql.connect" => ValueKind::Connection,
+        "sqlite3.connect"
+        | "psycopg2.connect"
+        | "pymysql.connect"
+        | "<conn>.cursor"
+        | "sqlalchemy.create_engine"
+        | "duckdb.connect" => ValueKind::Connection,
+        "zipfile.ZipFile" | "tarfile.open" | "tarfile.TarFile" => ValueKind::Archive,
+        "<path>.open" => ValueKind::File,
         "pandas.DataFrame"
         | "pandas.read_csv"
         | "pandas.read_parquet"
@@ -603,6 +783,7 @@ pub fn kind_prefix(kind: ValueKind) -> Option<&'static str> {
         ValueKind::Process => Some("<proc>"),
         ValueKind::Socket => Some("<socket>"),
         ValueKind::Connection => Some("<conn>"),
+        ValueKind::Archive => Some("<archive>"),
         _ => None,
     }
 }
@@ -632,26 +813,149 @@ pub const HAZARD_STRINGS: &[(&str, &str)] = &[
     ("--force", "forces an otherwise-refused operation"),
 ];
 
-/// Argument names whose presence changes how a call should be read.
-pub fn kwarg_hazard(callee: &str, kw: &str, truthy: bool) -> Option<(&'static str, Severity)> {
-    match (callee, kw, truthy) {
-        (c, "shell", true) if c.starts_with("subprocess.") => Some((
-            "shell=True — the argument is interpreted by /bin/sh",
-            Severity::Caution,
-        )),
-        (c, "check", false) if c.starts_with("subprocess.") => Some((
+/// What a keyword argument's value looked like at the call site, in the only
+/// terms a hazard rule cares about.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KwValue {
+    /// A literal `True` (or a non-zero integer).
+    True,
+    /// A literal `False`, `None` or `0`.
+    False,
+    /// A name or attribute we could resolve, e.g. `yaml.Loader`.
+    Path(String),
+    /// Anything else: a call, an expression, a variable we know nothing about.
+    Other,
+}
+
+impl KwValue {
+    /// True, or something decided at runtime — either way, not the safe value.
+    fn maybe_true(&self) -> bool {
+        !matches!(self, KwValue::False)
+    }
+    fn is_literal(&self) -> bool {
+        matches!(self, KwValue::True | KwValue::False)
+    }
+}
+
+/// What a keyword-argument hazard changes about the reading of a call.
+pub struct KwHazard {
+    pub note: &'static str,
+    pub severity: Severity,
+    /// Some hazards change *what* the call does, not just how carefully to
+    /// read it: `numpy.load(allow_pickle=True)` is dynamic code, not a read.
+    pub effect: Option<Effect>,
+}
+
+const fn kh(note: &'static str, severity: Severity) -> KwHazard {
+    KwHazard {
+        note,
+        severity,
+        effect: None,
+    }
+}
+
+/// Argument names whose presence changes how a call should be read. A value
+/// that is not a literal still counts, at one notch lower: `shell=use_shell`
+/// is a shell call whenever someone sets the flag, and the reader should know
+/// the flag exists.
+pub fn kwarg_hazard(callee: &str, kw: &str, value: &KwValue) -> Option<KwHazard> {
+    let literal = value.is_literal();
+    let on = value.maybe_true();
+    let off = matches!(value, KwValue::False) || (!literal && kw != "shell");
+    let is_http = callee.starts_with("requests.")
+        || callee.starts_with("httpx.")
+        || callee.starts_with("<session>.")
+        || callee.starts_with("aiohttp.")
+        || callee.starts_with("urllib3.");
+    let is_proc =
+        callee.starts_with("subprocess.") || callee.starts_with("asyncio.create_subprocess");
+    match kw {
+        "shell" if is_proc && on => Some(if literal {
+            kh(
+                "shell=True — the argument is interpreted by /bin/sh",
+                Severity::Caution,
+            )
+        } else {
+            kh(
+                "shell=… — decided at runtime; may go through /bin/sh",
+                Severity::Notable,
+            )
+        }),
+        "check" if is_proc && matches!(value, KwValue::False) => Some(kh(
             "check=False — a failing command is ignored",
             Severity::Notable,
         )),
-        ("requests.get" | "requests.post" | "requests.request", "verify", false) => Some((
-            "verify=False — TLS certificates are not checked",
+        "verify" if is_http && off => Some(if literal {
+            kh(
+                "verify=False — TLS certificates are not checked",
+                Severity::Caution,
+            )
+        } else {
+            kh(
+                "verify=… — decided at runtime; TLS checking may be off",
+                Severity::Notable,
+            )
+        }),
+        "allow_pickle" if callee == "numpy.load" && on => Some(KwHazard {
+            note: "allow_pickle=True — loading can run arbitrary code",
+            severity: Severity::Caution,
+            effect: Some(Effect::Dynamic),
+        }),
+        "weights_only" if callee == "torch.load" && matches!(value, KwValue::False) => Some(kh(
+            "weights_only=False — torch.load will unpickle arbitrary objects",
             Severity::Caution,
         )),
-        (_, "ignore_errors", true) => Some((
+        "trust_remote_code" if on => Some(KwHazard {
+            note: "trust_remote_code=True — runs code shipped with the download",
+            severity: Severity::Caution,
+            effect: Some(Effect::Dynamic),
+        }),
+        "Loader" if callee.starts_with("yaml.") => match value {
+            KwValue::Path(p) if p.ends_with("SafeLoader") || p.ends_with("CSafeLoader") => None,
+            KwValue::Path(p) if p.ends_with("Loader") => Some(KwHazard {
+                note: "Loader=yaml.Loader — can construct arbitrary Python objects",
+                severity: Severity::Caution,
+                effect: Some(Effect::Dynamic),
+            }),
+            _ => None,
+        },
+        "ignore_errors" if on && literal => Some(kh(
             "ignore_errors=True — failures pass silently",
             Severity::Notable,
         )),
-        (_, "exist_ok", true) => None,
+        "preexec_fn" if is_proc => Some(kh(
+            "preexec_fn — runs a callable in the child before exec",
+            Severity::Notable,
+        )),
+        "onerror" | "onexc" if callee == "shutil.rmtree" => None,
+        "dir_fd" => None,
         _ => None,
     }
+}
+
+/// Does an environment-variable name look like it holds a credential?
+/// Case-insensitive substring match; deliberately generous, because the cost
+/// of a false alarm here is one amber row and the cost of a miss is a leaked
+/// key.
+pub fn is_secret_name(name: &str) -> bool {
+    const HINTS: &[&str] = &[
+        "token",
+        "secret",
+        "passw",
+        "api_key",
+        "apikey",
+        "api-key",
+        "private",
+        "credential",
+        "auth",
+        "cookie",
+        "session_key",
+        "access_key",
+        "client_secret",
+        "signing",
+        "_pat",
+        "bearer",
+    ];
+    let lower = name.to_ascii_lowercase();
+    HINTS.iter().any(|h| lower.contains(h)) || lower.ends_with("_key") || lower == "key"
 }

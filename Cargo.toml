@@ -10,8 +10,12 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.96"
 license = "MIT"
 repository = "https://github.com/adukhan99/pyxray"
+readme = "README.md"
+keywords = ["python", "static-analysis", "security", "tui", "llm"]
+categories = ["command-line-utilities", "development-tools", "visualization"]
 
 [workspace.dependencies]
 pyxray-core = { path = "crates/pyxray-core" }
@@ -22,10 +26,10 @@ ruff_text_size = "0.0.12"
 ruff_source_file = "0.0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+insta = { version = "1.43", features = ["json"] }
 
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = true
-panic = "abort"

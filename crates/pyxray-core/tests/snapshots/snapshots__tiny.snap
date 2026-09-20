@@ -1,0 +1,238 @@
+---
+source: crates/pyxray-core/tests/snapshots.rs
+expression: report
+---
+{
+  "schema": 1,
+  "meta": {
+    "name": "tiny.py",
+    "bytes": 97,
+    "parsed": true,
+    "synopsis": "prints results",
+    "headline": [
+      "prints results"
+    ]
+  },
+  "spine": {
+    "id": 0,
+    "kind": "module",
+    "label": "tiny.py",
+    "detail": null,
+    "line": 1,
+    "end_line": 4,
+    "depth": 0,
+    "own_effects": 0,
+    "effects": 128,
+    "severity": "info",
+    "weight": 5,
+    "children": [
+      {
+        "id": 1,
+        "kind": "import",
+        "label": "import math",
+        "detail": null,
+        "line": 1,
+        "end_line": 1,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 2,
+        "kind": "assign",
+        "label": "xs = [math.sin(i / 10) for i in range(100)]",
+        "detail": null,
+        "line": 2,
+        "end_line": 2,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 3,
+        "kind": "assign",
+        "label": "peak = max(xs)",
+        "detail": null,
+        "line": 3,
+        "end_line": 3,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 4,
+        "kind": "call",
+        "label": "print(f\"peak={peak:.4f}\")",
+        "detail": null,
+        "line": 4,
+        "end_line": 4,
+        "depth": 0,
+        "own_effects": 128,
+        "effects": 128,
+        "severity": "info",
+        "weight": 1,
+        "children": []
+      }
+    ]
+  },
+  "imports": [
+    {
+      "module": "math",
+      "names": [],
+      "alias": null,
+      "line": 1,
+      "third_party": false,
+      "deferred": false
+    }
+  ],
+  "effects": [
+    {
+      "effect": "stdout",
+      "severity": "info",
+      "verb": "print",
+      "symbol": "print",
+      "target": "f\"peak={peak:.4f}\"",
+      "line": 4,
+      "col": 1,
+      "snippet": "print(f\"peak={peak:.4f}\")",
+      "note": null
+    }
+  ],
+  "symbols": [
+    {
+      "canonical": "print",
+      "display": "print",
+      "group": "<builtins>",
+      "origin": "builtin",
+      "count": 1,
+      "lines": [
+        4
+      ],
+      "effects": 128
+    },
+    {
+      "canonical": "math.sin",
+      "display": "math.sin",
+      "group": "math",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        2
+      ],
+      "effects": 0
+    }
+  ],
+  "bindings": [
+    {
+      "name": "i",
+      "kind": "comprehension",
+      "value": "unknown",
+      "origin": "range(100)",
+      "scope": "<module>",
+      "line": 2,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    },
+    {
+      "name": "xs",
+      "kind": "assign",
+      "value": "seq",
+      "origin": "[math.sin(i / 10) for i in range(100)]",
+      "scope": "<module>",
+      "line": 2,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    },
+    {
+      "name": "peak",
+      "kind": "assign",
+      "value": "number",
+      "origin": "max(xs)",
+      "scope": "<module>",
+      "line": 3,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    }
+  ],
+  "metrics": {
+    "lines_total": 4,
+    "lines_code": 4,
+    "lines_comment": 0,
+    "lines_blank": 0,
+    "statements": 4,
+    "max_depth": 0,
+    "complexity": 2,
+    "functions": 0,
+    "classes": 0,
+    "async_defs": 0,
+    "calls": 4,
+    "imports": 1,
+    "loops": 0,
+    "branches": 0,
+    "handlers": 0,
+    "risk": 1
+  },
+  "texture": [
+    {
+      "indent": 0,
+      "width": 11,
+      "blank": false,
+      "comment": false,
+      "kind": "import",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 43,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 14,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 25,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 128,
+      "severity": "info"
+    }
+  ],
+  "diagnostics": [],
+  "source": [
+    "import math",
+    "xs = [math.sin(i / 10) for i in range(100)]",
+    "peak = max(xs)",
+    "print(f\"peak={peak:.4f}\")"
+  ]
+}

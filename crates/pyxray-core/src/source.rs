@@ -50,8 +50,11 @@ impl<'a> Src<'a> {
         self.index.line_column(offset, self.text).column.get() as u32
     }
 
+    /// Number of lines, counted the way `str::lines` does — a trailing
+    /// newline does not start a phantom empty line. This is what
+    /// `line_text`, the texture strip and `Report.source` all index by.
     pub fn line_count(&self) -> u32 {
-        self.index.line_count() as u32
+        self.lines.len() as u32
     }
 
     pub fn line_text(&self, line: u32) -> &'a str {
@@ -109,14 +112,24 @@ pub fn clip(s: &str, budget: usize) -> String {
     out
 }
 
+/// How far the label helpers recurse into an expression before giving up
+/// and clipping its source. Labels are a few dozen characters; nothing that
+/// deep can affect them, and the guard keeps a pathological input from
+/// costing stack.
+const SHAPE_DEPTH: u32 = 32;
+
 /// A short, faithful label for an expression: its own source when that is
 /// small enough, otherwise a shape summary.
 pub fn brief_expr(src: &Src, expr: &Expr, budget: usize) -> String {
+    brief_expr_d(src, expr, budget, 0)
+}
+
+fn brief_expr_d(src: &Src, expr: &Expr, budget: usize, depth: u32) -> String {
     let raw = squeeze(src.slice(expr.range()));
-    if raw.chars().count() <= budget {
-        return raw;
+    if raw.chars().count() <= budget || depth > SHAPE_DEPTH {
+        return clip(&raw, budget);
     }
-    let shaped = shape_expr(src, expr, budget);
+    let shaped = shape_expr_d(src, expr, budget, depth + 1);
     if shaped.chars().count() <= budget {
         shaped
     } else {
@@ -126,6 +139,14 @@ pub fn brief_expr(src: &Src, expr: &Expr, budget: usize) -> String {
 
 /// Structural stand-in for an expression too long to show verbatim.
 pub fn shape_expr(src: &Src, expr: &Expr, budget: usize) -> String {
+    shape_expr_d(src, expr, budget, 0)
+}
+
+fn shape_expr_d(src: &Src, expr: &Expr, budget: usize, depth: u32) -> String {
+    if depth > SHAPE_DEPTH {
+        return clip(&squeeze(src.slice(expr.range())), budget);
+    }
+    let brief_expr = |src: &Src, e: &Expr, b: usize| brief_expr_d(src, e, b, depth + 1);
     match expr {
         Expr::Dict(d) => plural(d.items.len(), "key", "keys", '{', '}'),
         Expr::Set(s) => plural(s.elts.len(), "item", "items", '{', '}'),
@@ -148,7 +169,8 @@ pub fn shape_expr(src: &Src, expr: &Expr, budget: usize) -> String {
         Expr::Call(c) => {
             // The callee and its first argument carry nearly all the meaning;
             // the rest becomes a count so the width stays predictable.
-            let name = dotted(&c.func).unwrap_or_else(|| chain_shape(src, &c.func, 28));
+            let name =
+                dotted(&c.func).unwrap_or_else(|| chain_shape_d(src, &c.func, 28, depth + 1));
             let extra = c.arguments.args.len() + c.arguments.keywords.len();
             match c.arguments.args.first() {
                 None if extra == 0 => format!("{name}()"),
@@ -200,18 +222,32 @@ pub fn shape_expr(src: &Src, expr: &Expr, budget: usize) -> String {
 /// `merged.groupby(...)["rmsf"].agg` becomes `merged.groupby(…)[…].agg`, which
 /// keeps the shape of the chain without any of its bulk.
 pub fn chain_shape(src: &Src, expr: &Expr, budget: usize) -> String {
+    chain_shape_d(src, expr, budget, 0)
+}
+
+fn chain_shape_d(src: &Src, expr: &Expr, budget: usize, depth: u32) -> String {
+    if depth > SHAPE_DEPTH {
+        return clip(&squeeze(src.slice(expr.range())), budget);
+    }
     let text = match expr {
         Expr::Name(n) => n.id.to_string(),
-        Expr::Attribute(a) => format!("{}.{}", chain_shape(src, &a.value, budget), a.attr),
+        Expr::Attribute(a) => format!(
+            "{}.{}",
+            chain_shape_d(src, &a.value, budget, depth + 1),
+            a.attr
+        ),
         Expr::Call(c) => {
-            let inner = chain_shape(src, &c.func, budget);
+            let inner = chain_shape_d(src, &c.func, budget, depth + 1);
             if c.arguments.args.is_empty() && c.arguments.keywords.is_empty() {
                 format!("{inner}()")
             } else {
                 format!("{inner}(\u{2026})")
             }
         }
-        Expr::Subscript(s) => format!("{}[\u{2026}]", chain_shape(src, &s.value, budget)),
+        Expr::Subscript(s) => format!(
+            "{}[\u{2026}]",
+            chain_shape_d(src, &s.value, budget, depth + 1)
+        ),
         other => clip(&squeeze(src.slice(other.range())), budget),
     };
     clip(&text, budget)
@@ -251,26 +287,43 @@ pub fn param_names(p: &ruff_python_ast::Parameters) -> Vec<String> {
 /// for anything with a call, subscript or literal in the middle, which is
 /// exactly the case where a dotted path would be a lie.
 pub fn dotted(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Name(n) => Some(n.id.to_string()),
-        Expr::Attribute(a) => dotted(&a.value).map(|base| format!("{base}.{}", a.attr)),
-        _ => None,
+    // Iterative, so a ten-thousand-link attribute chain costs a loop, not a
+    // stack frame per link.
+    let mut parts: Vec<&str> = Vec::new();
+    let mut cur = expr;
+    loop {
+        match cur {
+            Expr::Name(n) => {
+                parts.push(n.id.as_str());
+                break;
+            }
+            Expr::Attribute(a) => {
+                parts.push(a.attr.as_str());
+                cur = &a.value;
+            }
+            _ => return None,
+        }
     }
+    parts.reverse();
+    Some(parts.join("."))
 }
 
 /// Like [`dotted`], but tolerates one call or subscript at the base and
 /// reports it: `Path(p).write_text` yields `("Path", ["write_text"])`.
 pub fn dotted_through_call(expr: &Expr) -> Option<(String, Vec<String>)> {
     fn walk(expr: &Expr, tail: &mut Vec<String>) -> Option<String> {
-        match expr {
-            Expr::Name(n) => Some(n.id.to_string()),
-            Expr::Attribute(a) => {
-                tail.push(a.attr.to_string());
-                walk(&a.value, tail)
+        let mut cur = expr;
+        loop {
+            match cur {
+                Expr::Name(n) => return Some(n.id.to_string()),
+                Expr::Attribute(a) => {
+                    tail.push(a.attr.to_string());
+                    cur = &a.value;
+                }
+                Expr::Call(c) => return dotted(&c.func),
+                Expr::Subscript(s) => cur = &s.value,
+                _ => return None,
             }
-            Expr::Call(c) => dotted(&c.func),
-            Expr::Subscript(s) => walk(&s.value, tail),
-            _ => None,
         }
     }
     let mut tail = Vec::new();

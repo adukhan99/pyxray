@@ -6,7 +6,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/../pyxray-hook",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/pyxray-hook\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/pyxray-hook\"",
             "timeout": 5
           }
         ]

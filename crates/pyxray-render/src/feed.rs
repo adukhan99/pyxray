@@ -36,9 +36,10 @@ pub struct Stats {
     /// Counts per band, indexed by `Band as usize`.
     pub bands: [u64; 4],
     /// Counts per capability, in `Effect::BARCODE` order.
-    pub caps: [u64; 13],
-    /// Recent risk scores, oldest first, for the sparkline.
-    pub recent: VecDeque<u8>,
+    pub caps: [u64; Effect::COUNT],
+    /// Recent (risk, band) pairs, oldest first, for the sparkline: height
+    /// from the score, colour from the band the row itself shows.
+    pub recent: VecDeque<(u8, Band)>,
     /// Epoch milliseconds of the first and last event seen.
     pub first_ts: u64,
     pub last_ts: u64,
@@ -57,7 +58,7 @@ impl Stats {
                 self.caps[slot] += 1;
             }
         }
-        self.recent.push_back(event.risk);
+        self.recent.push_back((event.risk, event.band));
         while self.recent.len() > 240 {
             self.recent.pop_front();
         }
@@ -84,12 +85,7 @@ impl Stats {
 }
 
 fn band_colour(band: Band, t: &Theme) -> ratatui::style::Color {
-    match band {
-        Band::Inert => t.pal.faint,
-        Band::Routine => t.pal.ok,
-        Band::Check => t.pal.warn,
-        Band::Read => t.pal.danger,
-    }
+    t.risk_color(band)
 }
 
 /// Age as something a person reads at a glance rather than converts.
@@ -119,7 +115,7 @@ pub fn row(buf: &mut Buffer, a: Rect, event: &Event, now_ms: u64, t: &Theme, o: 
             x + i,
             a.y,
             1,
-            if lit { "\u{2588}" } else { " " },
+            &if lit { t.gl.block } else { ' ' }.to_string(),
             Style::default().fg(colour),
         );
     }
@@ -155,7 +151,7 @@ pub fn row(buf: &mut Buffer, a: Rect, event: &Event, now_ms: u64, t: &Theme, o: 
     let tail_w = width(&name) + width(blocked) + 2;
     let room = a.right().saturating_sub(x).saturating_sub(tail_w);
 
-    let text = event.synopsis.replace('\u{2192}', t.gl.arrow);
+    let text = t.localise(&event.synopsis);
     canvas::text(
         buf,
         x,
@@ -235,10 +231,11 @@ pub fn header(buf: &mut Buffer, a: Rect, stats: &Stats, source: &str, t: &Theme)
     let rate = match stats.rate() {
         Some(r) if r >= 10.0 => format!("{r:.0}/min"),
         Some(r) => format!("{r:.1}/min"),
-        None => "\u{2014}".into(),
+        None => t.gl.dash.to_string(),
     };
+    let sep = t.gl.sep;
     let counts = format!(
-        "{} snippet{}  \u{00b7}  {rate}",
+        "{} snippet{} {sep} {rate}",
         stats.count,
         if stats.count == 1 { "" } else { "s" }
     );
@@ -252,7 +249,7 @@ pub fn header(buf: &mut Buffer, a: Rect, stats: &Stats, source: &str, t: &Theme)
     );
 
     if stats.flagged() > 0 {
-        let flagged = format!("  \u{00b7}  {} flagged", stats.flagged());
+        let flagged = format!(" {sep} {} flagged", stats.flagged());
         x += canvas::text(
             buf,
             x,
@@ -263,7 +260,7 @@ pub fn header(buf: &mut Buffer, a: Rect, stats: &Stats, source: &str, t: &Theme)
         );
     }
     if stats.blocked > 0 {
-        let blocked = format!("  \u{00b7}  {} blocked", stats.blocked);
+        let blocked = format!(" {sep} {} blocked", stats.blocked);
         canvas::text(
             buf,
             x,
@@ -285,7 +282,7 @@ pub fn header(buf: &mut Buffer, a: Rect, stats: &Stats, source: &str, t: &Theme)
     canvas::text(buf, a.x, a.y + 1, AGE_W, " risk", t.faint());
     let spark_w = a.width.saturating_sub(BAR_X + barcode_width() + 6);
     let start = stats.recent.len().saturating_sub(spark_w as usize);
-    for (i, risk) in stats.recent.iter().skip(start).enumerate() {
+    for (i, (risk, band)) in stats.recent.iter().skip(start).enumerate() {
         let ch = t.ramp((*risk as f32 / 100.0).max(0.06));
         canvas::text(
             buf,
@@ -293,7 +290,7 @@ pub fn header(buf: &mut Buffer, a: Rect, stats: &Stats, source: &str, t: &Theme)
             a.y + 1,
             1,
             &ch.to_string(),
-            Style::default().fg(band_colour(Band::of(*risk), t)),
+            Style::default().fg(band_colour(*band, t)),
         );
     }
 
@@ -325,13 +322,16 @@ pub fn header(buf: &mut Buffer, a: Rect, stats: &Stats, source: &str, t: &Theme)
             cx += canvas::text(buf, cx, a.y + 2, 1, &ch.to_string(), style);
         }
     }
-    let key = "  fs \u{00b7} world \u{00b7} eval \u{00b7} work \u{00b7} out";
+    let key = format!(
+        "  {}",
+        ["fs", "world", "eval", "work", "out"].join(t.gl.sep)
+    );
     canvas::text(
         buf,
         cx,
         a.y + 2,
         a.right().saturating_sub(cx),
-        key,
+        &key,
         t.faint(),
     );
 }

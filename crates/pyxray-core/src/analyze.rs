@@ -20,6 +20,32 @@ const LABEL: usize = 64;
 const TARGET: usize = 44;
 const ORIGIN: usize = 40;
 
+/// How deep an expression may nest before the walk stops descending. Python
+/// itself refuses to parse much past a couple of hundred levels; this is the
+/// analyser's own stack budget, well inside what [`crate::xray_guarded`]
+/// provides, and anything deeper is not code a person wrote.
+const MAX_EXPR_DEPTH: u32 = 256;
+/// The same budget for statement nesting.
+const MAX_STMT_DEPTH: u16 = 96;
+/// Steps a single `resolve` may take down an attribute/call chain.
+const RESOLVE_FUEL: u8 = 64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScopeKind {
+    Module,
+    Class,
+    Function,
+}
+
+/// One lexical scope: which names it binds. Python's rule is the useful one
+/// here — a function sees its own names and the module's, but *not* the class
+/// body it sits inside — and that is exactly the difference between "this file
+/// defines its own `open`" and "some method somewhere is called `open`".
+struct Scope {
+    kind: ScopeKind,
+    names: HashSet<String>,
+}
+
 pub struct Analyzer<'a> {
     src: &'a Src<'a>,
     /// Local name → canonical dotted path it stands for (`np` → `numpy`).
@@ -35,9 +61,19 @@ pub struct Analyzer<'a> {
     /// Root modules reached by an import, for telling a library call apart
     /// from a method on some local object.
     imported_roots: HashSet<String>,
-    /// Names bound by `def`/`class`/assignment in this file, so we don't
-    /// attribute a builtin's behaviour to a user's own function.
-    locals: HashSet<String>,
+    /// The lexical scope stack; `scopes[0]` is the module. Used to decide
+    /// whether a bare name is the file's own definition or a builtin.
+    scopes: Vec<Scope>,
+    /// Local name → the effectful callable it was assigned (`f = os.system`),
+    /// so the call through the alias is still seen for what it is.
+    callable_aliases: HashMap<String, String>,
+    /// Modules pulled in with `from m import *`, in order, so a bare
+    /// `system(...)` can be tried as `os.system`.
+    star_modules: Vec<String>,
+    /// Current expression nesting, against [`MAX_EXPR_DEPTH`].
+    expr_depth: u32,
+    /// Only warn once per snippet about hitting a depth limit.
+    depth_warned: bool,
     imports: Vec<ImportInfo>,
     effects: Vec<EffectHit>,
     symbols: HashMap<String, SymbolUse>,
@@ -61,7 +97,14 @@ impl<'a> Analyzer<'a> {
             consts: HashMap::new(),
             origins: HashMap::new(),
             imported_roots: HashSet::new(),
-            locals: HashSet::new(),
+            scopes: vec![Scope {
+                kind: ScopeKind::Module,
+                names: HashSet::new(),
+            }],
+            callable_aliases: HashMap::new(),
+            star_modules: Vec::new(),
+            expr_depth: 0,
+            depth_warned: false,
             imports: Vec::new(),
             effects: Vec::new(),
             symbols: HashMap::new(),
@@ -95,6 +138,14 @@ impl<'a> Analyzer<'a> {
     /// Collect imports and top-level names before the main walk, so a symbol
     /// used above its own import (or shadowing a builtin) still resolves.
     pub fn prescan(&mut self, body: &[Stmt], deferred: bool) {
+        self.prescan_in(body, deferred, true);
+    }
+
+    /// `module_level` is whether names bound here belong to the module scope.
+    /// Imports are hoisted from anywhere (an alias is an alias wherever it is
+    /// declared); names are not, because a `def eval` inside some class must
+    /// not hide the builtin from the rest of the file.
+    fn prescan_in(&mut self, body: &[Stmt], deferred: bool, module_level: bool) {
         for stmt in body {
             match stmt {
                 Stmt::Import(imp) => {
@@ -139,9 +190,11 @@ impl<'a> Analyzer<'a> {
                             .as_ref()
                             .map(|a| a.to_string())
                             .unwrap_or_else(|| name.clone());
-                        if name != "*" {
-                            self.imported_roots
-                                .insert(module.split('.').next().unwrap_or(&module).to_string());
+                        self.imported_roots
+                            .insert(module.split('.').next().unwrap_or(&module).to_string());
+                        if name == "*" {
+                            self.star_modules.push(module.clone());
+                        } else {
                             self.aliases
                                 .insert(local.clone(), format!("{module}.{name}"));
                         }
@@ -160,35 +213,39 @@ impl<'a> Analyzer<'a> {
                     });
                 }
                 Stmt::FunctionDef(f) => {
-                    self.locals.insert(f.name.to_string());
-                    self.prescan(&f.body, true);
+                    if module_level {
+                        self.scopes[0].names.insert(f.name.to_string());
+                    }
+                    self.prescan_in(&f.body, true, false);
                 }
                 Stmt::ClassDef(c) => {
-                    self.locals.insert(c.name.to_string());
-                    self.prescan(&c.body, true);
+                    if module_level {
+                        self.scopes[0].names.insert(c.name.to_string());
+                    }
+                    self.prescan_in(&c.body, true, false);
                 }
                 Stmt::If(s) => {
-                    self.prescan(&s.body, deferred);
+                    self.prescan_in(&s.body, deferred, module_level);
                     for clause in &s.elif_else_clauses {
-                        self.prescan(&clause.body, deferred);
+                        self.prescan_in(&clause.body, deferred, module_level);
                     }
                 }
                 Stmt::Try(s) => {
-                    self.prescan(&s.body, true);
+                    self.prescan_in(&s.body, true, module_level);
                     for handler in &s.handlers {
                         let ExceptHandler::ExceptHandler(h) = handler;
-                        self.prescan(&h.body, true);
+                        self.prescan_in(&h.body, true, module_level);
                     }
-                    self.prescan(&s.orelse, true);
-                    self.prescan(&s.finalbody, true);
+                    self.prescan_in(&s.orelse, true, module_level);
+                    self.prescan_in(&s.finalbody, true, module_level);
                 }
-                Stmt::For(s) => self.prescan(&s.body, deferred),
-                Stmt::While(s) => self.prescan(&s.body, deferred),
-                Stmt::With(s) => self.prescan(&s.body, deferred),
-                Stmt::Assign(s) => {
+                Stmt::For(s) => self.prescan_in(&s.body, deferred, module_level),
+                Stmt::While(s) => self.prescan_in(&s.body, deferred, module_level),
+                Stmt::With(s) => self.prescan_in(&s.body, deferred, module_level),
+                Stmt::Assign(s) if module_level => {
                     for t in &s.targets {
                         if let Expr::Name(n) = t {
-                            self.locals.insert(n.id.to_string());
+                            self.scopes[0].names.insert(n.id.to_string());
                         }
                     }
                 }
@@ -197,31 +254,143 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    /// The names a function or class body binds directly — one level, no
+    /// nested definitions — so a local used above its own assignment still
+    /// counts as local. Called when the walk enters the body.
+    fn prescan_local(&mut self, body: &[Stmt]) {
+        let mut names = Vec::new();
+        for stmt in body {
+            match stmt {
+                Stmt::FunctionDef(f) => names.push(f.name.to_string()),
+                Stmt::ClassDef(c) => names.push(c.name.to_string()),
+                Stmt::Assign(s) => {
+                    for t in &s.targets {
+                        if let Expr::Name(n) = t {
+                            names.push(n.id.to_string());
+                        }
+                    }
+                }
+                Stmt::AnnAssign(s) => {
+                    if let Expr::Name(n) = &*s.target {
+                        names.push(n.id.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.names.extend(names);
+        }
+    }
+
+    fn push_scope(&mut self, kind: ScopeKind) {
+        self.scopes.push(Scope {
+            kind,
+            names: HashSet::new(),
+        });
+    }
+
+    fn pop_scope(&mut self) {
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
+        }
+    }
+
+    /// Whether `id` is bound in a scope the current position can see, by
+    /// Python's rules: the innermost scope, every enclosing *function*, and the
+    /// module — but not an enclosing class body.
+    fn is_bound_locally(&self, id: &str) -> bool {
+        let last = self.scopes.len() - 1;
+        self.scopes.iter().enumerate().rev().any(|(i, scope)| {
+            (i == last || scope.kind != ScopeKind::Class) && scope.names.contains(id)
+        })
+    }
+
+    /// The value-tracking tables a nested scope may change but must not leak:
+    /// a `p = '/tmp/safe'` inside one function is not the `p` at module level.
+    fn snapshot(&self) -> ScopeState {
+        ScopeState {
+            kinds: self.kinds.clone(),
+            consts: self.consts.clone(),
+            origins: self.origins.clone(),
+            callable_aliases: self.callable_aliases.clone(),
+        }
+    }
+
+    fn restore(&mut self, state: ScopeState) {
+        self.kinds = state.kinds;
+        self.consts = state.consts;
+        self.origins = state.origins;
+        self.callable_aliases = state.callable_aliases;
+    }
+
+    /// One warning per snippet when a depth limit is hit; the rest of the walk
+    /// simply does not descend, which is honest ("did not look here") and
+    /// cheap.
+    fn depth_limit(&mut self, what: &str, limit: u32, range: ruff_text_size::TextRange) {
+        if self.depth_warned {
+            return;
+        }
+        self.depth_warned = true;
+        self.diagnostics.push(Diagnostic {
+            level: DiagLevel::Warning,
+            message: format!(
+                "{what} nested deeper than {limit} levels; the inner part was not analysed"
+            ),
+            line: self.src.line_of(range.start()),
+            col: self.src.col_of(range.start()),
+        });
+    }
+
     // ------------------------------------------------------------ resolution
 
     /// The canonical namespace of an expression's *value*: what you would have
     /// to write, with no aliases in play, to name the same thing.
     fn resolve(&self, e: &Expr) -> Option<String> {
+        self.resolve_fuel(e, RESOLVE_FUEL)
+    }
+
+    fn resolve_fuel(&self, e: &Expr, fuel: u8) -> Option<String> {
+        let fuel = fuel.checked_sub(1)?;
         match e {
             Expr::Name(n) => {
                 let id = n.id.as_str();
+                if let Some(path) = self.callable_aliases.get(id) {
+                    return Some(path.clone());
+                }
                 if let Some(kind) = self.kinds.get(id) {
                     if let Some(prefix) = effects::kind_prefix(*kind) {
                         return Some(prefix.to_string());
                     }
                 }
-                Some(
-                    self.aliases
-                        .get(id)
-                        .cloned()
-                        .unwrap_or_else(|| id.to_string()),
-                )
+                if let Some(path) = self.aliases.get(id) {
+                    return Some(path.clone());
+                }
+                // `from os import *` then `system(...)`: try each star-imported
+                // module for a symbol we know something about.
+                if !self.star_modules.is_empty() && !self.is_bound_locally(id) {
+                    for module in &self.star_modules {
+                        let candidate = format!("{module}.{id}");
+                        if effects::lookup(&candidate).is_some()
+                            || effects::produces(&candidate) != ValueKind::Unknown
+                        {
+                            return Some(candidate);
+                        }
+                    }
+                }
+                Some(id.to_string())
             }
             Expr::Attribute(a) => self
-                .resolve(&a.value)
+                .resolve_fuel(&a.value, fuel)
                 .map(|base| format!("{base}.{}", a.attr)),
             Expr::Call(c) => {
-                let base = self.resolve(&c.func)?;
+                let base = self.resolve_fuel(&c.func, fuel)?;
+                // `__import__("os").system(...)`: the call *is* the module.
+                if base == "__import__" || base == "importlib.import_module" {
+                    if let Some(module) = c.arguments.args.first().and_then(Self::str_lit) {
+                        return Some(module.to_string());
+                    }
+                }
                 match effects::kind_prefix(effects::produces(&base)) {
                     Some(prefix) => Some(prefix.to_string()),
                     None => Some(base),
@@ -229,15 +398,15 @@ impl<'a> Analyzer<'a> {
             }
             // `paths[0].read_text()` and `os.environ["X"]` both want the
             // container's identity, not the element's.
-            Expr::Subscript(s) => self.resolve(&s.value),
-            Expr::Await(a) => self.resolve(&a.value),
+            Expr::Subscript(s) => self.resolve_fuel(&s.value, fuel),
+            Expr::Await(a) => self.resolve_fuel(&a.value, fuel),
             // `out / "flexible.json"` is still a path; so is the reverse.
             Expr::BinOp(b) => {
-                let left = self.resolve(&b.left);
+                let left = self.resolve_fuel(&b.left, fuel);
                 if left.as_deref() == Some("<path>") {
                     return left;
                 }
-                let right = self.resolve(&b.right);
+                let right = self.resolve_fuel(&b.right, fuel);
                 if right.as_deref() == Some("<path>") {
                     return right;
                 }
@@ -248,15 +417,41 @@ impl<'a> Analyzer<'a> {
     }
 
     /// A call to a name the file defines itself is the user's function, not a
-    /// builtin of the same name.
+    /// builtin of the same name — unless that name is an import or an alias
+    /// for something we know, in which case it is exactly what it says.
     fn is_shadowed(&self, e: &Expr) -> bool {
         match e {
             Expr::Name(n) => {
                 let id = n.id.as_str();
-                self.locals.contains(id) && !self.aliases.contains_key(id)
+                self.is_bound_locally(id)
+                    && !self.aliases.contains_key(id)
+                    && !self.callable_aliases.contains_key(id)
             }
             _ => false,
         }
+    }
+
+    /// The effectful callable an assignment's right-hand side names, if any:
+    /// `os.system`, `open`, `getattr(os, "remove")`, `Path`.
+    fn callable_target(&self, origin: &Expr) -> Option<String> {
+        let path = match origin {
+            Expr::Name(_) | Expr::Attribute(_) => self.resolve(origin)?,
+            Expr::Call(c) => {
+                let func = self.resolve(&c.func)?;
+                if func != "getattr" || c.arguments.args.len() < 2 {
+                    return None;
+                }
+                let base = self.resolve(&c.arguments.args[0])?;
+                let attr = Self::str_lit(&c.arguments.args[1])?;
+                format!("{base}.{attr}")
+            }
+            _ => return None,
+        };
+        let known = effects::lookup(&path).is_some()
+            || effects::produces(&path) != ValueKind::Unknown
+            || path == "open"
+            || path.starts_with('<');
+        known.then_some(path)
     }
 
     // --------------------------------------------------------------- effects
@@ -335,17 +530,67 @@ impl<'a> Analyzer<'a> {
         Some(self.target_text(e))
     }
 
-    /// Scan a call's string arguments for shell fragments and paths that turn
-    /// a routine operation into one worth reading closely.
+    /// Scan a call's *own* string arguments for shell fragments and paths that
+    /// turn a routine operation into one worth reading closely. Only literals
+    /// directly in this call's arguments count: a nested call's arguments are
+    /// that call's business, and scanning the whole span would make every
+    /// enclosing call inherit them (and cost quadratic time doing it).
     fn hazards(&self, call: &ExprCall) -> Vec<&'static str> {
+        fn scan(text: &str, found: &mut Vec<&'static str>) {
+            let lower = text.to_ascii_lowercase();
+            for (needle, why) in effects::HAZARD_STRINGS {
+                if lower.contains(needle) && !found.contains(why) {
+                    found.push(*why);
+                }
+            }
+        }
         let mut found = Vec::new();
-        let text = self.src.slice(call.range()).to_ascii_lowercase();
-        for (needle, why) in effects::HAZARD_STRINGS {
-            if text.contains(needle) && !found.contains(why) {
-                found.push(*why);
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .chain(call.arguments.keywords.iter().map(|k| &k.value));
+        for arg in args {
+            match arg {
+                Expr::StringLiteral(s) => scan(s.value.to_str(), &mut found),
+                Expr::FString(f) => {
+                    for lit in f.value.elements().filter_map(|e| e.as_literal()) {
+                        scan(&lit.value, &mut found);
+                    }
+                }
+                Expr::Name(n) => {
+                    if let Some(value) = self.consts.get(n.id.as_str()) {
+                        scan(value, &mut found);
+                    }
+                }
+                Expr::List(ruff_python_ast::ExprList { elts, .. })
+                | Expr::Tuple(ruff_python_ast::ExprTuple { elts, .. }) => {
+                    // A command given as a list reads as one command line.
+                    let joined = elts
+                        .iter()
+                        .filter_map(Self::str_lit)
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    scan(&joined, &mut found);
+                }
+                _ => {}
             }
         }
         found
+    }
+
+    /// Hazard strings only ever escalate an effect that touches the world:
+    /// `print("run: pip install foo")` is help text, not a package install.
+    fn hazard_applies(effect: Effect) -> bool {
+        matches!(
+            effect,
+            Effect::Process
+                | Effect::FsRead
+                | Effect::FsWrite
+                | Effect::FsDelete
+                | Effect::Net
+                | Effect::Dynamic
+        )
     }
 
     fn on_call(&mut self, call: &ExprCall) {
@@ -400,28 +645,55 @@ impl<'a> Analyzer<'a> {
             let target = self
                 .extract_target(call, rule.target)
                 .or_else(|| self.receiver_origin(&call.func));
+            let mut effect = rule.effect;
             let mut sev = rule.sev;
             let mut notes: Vec<String> = rule.note.map(|n| n.to_string()).into_iter().collect();
-            if !hazards.is_empty() {
+            if !hazards.is_empty() && Self::hazard_applies(effect) {
                 sev = sev.max(Severity::Caution);
                 notes.extend(hazards.iter().map(|h| h.to_string()));
             }
             for kw in &call.arguments.keywords {
                 let Some(name) = &kw.arg else { continue };
-                let truthy = matches!(&kw.value, Expr::BooleanLiteral(b) if b.value);
-                let falsy = matches!(&kw.value, Expr::BooleanLiteral(b) if !b.value);
-                if truthy || falsy {
-                    if let Some((msg, s)) = effects::kwarg_hazard(&canonical, name.as_str(), truthy)
-                    {
-                        notes.push(msg.to_string());
-                        sev = sev.max(s);
+                let value = match &kw.value {
+                    Expr::BooleanLiteral(b) if b.value => effects::KwValue::True,
+                    Expr::BooleanLiteral(_) => effects::KwValue::False,
+                    Expr::NoneLiteral(_) => effects::KwValue::False,
+                    Expr::NumberLiteral(n) => match &n.value {
+                        ruff_python_ast::Number::Int(i) if i.as_u8() == Some(0) => {
+                            effects::KwValue::False
+                        }
+                        ruff_python_ast::Number::Int(_) => effects::KwValue::True,
+                        _ => effects::KwValue::Other,
+                    },
+                    Expr::Name(_) | Expr::Attribute(_) => match self.resolve(&kw.value) {
+                        Some(path) => effects::KwValue::Path(path),
+                        None => effects::KwValue::Other,
+                    },
+                    _ => effects::KwValue::Other,
+                };
+                if let Some(hazard) = effects::kwarg_hazard(&canonical, name.as_str(), &value) {
+                    notes.push(hazard.note.to_string());
+                    sev = sev.max(hazard.severity);
+                    if let Some(e) = hazard.effect {
+                        effect = e;
                     }
                 }
             }
-            effect_mask.insert(rule.effect);
+            // Reading a variable whose name says "secret" is worth stopping
+            // for: it is the one environment read an agent should not be
+            // making casually.
+            if effect == Effect::Env && (rule.verb == "getenv" || rule.verb == "dotenv") {
+                if let Some(name) = target.as_deref() {
+                    if effects::is_secret_name(name) {
+                        sev = sev.max(Severity::Caution);
+                        notes.push("reads a secret from the environment".to_string());
+                    }
+                }
+            }
+            effect_mask.insert(effect);
             let note = (!notes.is_empty()).then(|| notes.join("; "));
             self.push_hit(
-                rule.effect,
+                effect,
                 sev,
                 rule.verb,
                 &canonical,
@@ -439,7 +711,7 @@ impl<'a> Analyzer<'a> {
                 .or_else(|| self.receiver_origin(&call.func));
             let mut sev = rule.sev;
             let mut notes: Vec<String> = rule.note.map(|n| n.to_string()).into_iter().collect();
-            if !hazards.is_empty() {
+            if !hazards.is_empty() && Self::hazard_applies(rule.effect) {
                 sev = sev.max(Severity::Caution);
                 notes.extend(hazards.iter().map(|h| h.to_string()));
             }
@@ -470,7 +742,7 @@ impl<'a> Analyzer<'a> {
 
         // Fold into the symbol inventory whether or not it had an effect: the
         // call list is useful on its own for seeing what a snippet leans on.
-        let group = symbol_group(&canonical, &self.locals);
+        let group = symbol_group(&canonical, self.is_bound_locally(&canonical));
         let origin = self.symbol_origin(&canonical);
         let entry = self
             .symbols
@@ -517,7 +789,7 @@ impl<'a> Analyzer<'a> {
         }
         match canonical.split_once('.') {
             None => {
-                if self.locals.contains(canonical) {
+                if self.is_bound_locally(canonical) {
                     SymbolOrigin::Local
                 } else {
                     SymbolOrigin::Builtin
@@ -534,21 +806,40 @@ impl<'a> Analyzer<'a> {
     }
 
     fn on_subscript(&mut self, sub: &ExprSubscript) {
+        self.on_env_subscript(sub, "getenv", Severity::Notable);
+    }
+
+    /// `os.environ[...]` read, written or deleted. Reads of a secret-looking
+    /// name escalate; writes are always notable, because an agent setting
+    /// `LD_PRELOAD` or `PATH` is changing what everything after it does.
+    fn on_env_subscript(&mut self, sub: &ExprSubscript, verb: &str, sev: Severity) -> bool {
         let Some(base) = self.resolve(&sub.value) else {
-            return;
+            return false;
         };
-        if base == "os.environ" {
-            let target = Self::str_lit(&sub.slice).map(|s| s.to_string());
-            self.push_hit(
-                Effect::Env,
-                Severity::Notable,
-                "getenv",
-                "os.environ",
-                target,
-                sub.range(),
-                None,
-            );
+        if base != "os.environ" {
+            return false;
         }
+        let target = Self::str_lit(&sub.slice).map(|s| s.to_string());
+        let mut sev = sev;
+        let mut note = None;
+        if verb == "getenv" {
+            if let Some(name) = target.as_deref() {
+                if effects::is_secret_name(name) {
+                    sev = Severity::Caution;
+                    note = Some("reads a secret from the environment".to_string());
+                }
+            }
+        }
+        self.push_hit(
+            Effect::Env,
+            sev,
+            verb,
+            "os.environ",
+            target,
+            sub.range(),
+            note,
+        );
+        true
     }
 
     fn on_attribute(&mut self, attr: &ExprAttribute) {
@@ -572,6 +863,16 @@ impl<'a> Analyzer<'a> {
     // ------------------------------------------------------------ expression
 
     fn expr(&mut self, e: &Expr) {
+        if self.expr_depth >= MAX_EXPR_DEPTH {
+            self.depth_limit("an expression", MAX_EXPR_DEPTH, e.range());
+            return;
+        }
+        self.expr_depth += 1;
+        self.expr_inner(e);
+        self.expr_depth -= 1;
+    }
+
+    fn expr_inner(&mut self, e: &Expr) {
         match e {
             Expr::Call(c) => {
                 self.on_call(c);
@@ -627,7 +928,19 @@ impl<'a> Analyzer<'a> {
                         self.expr(d);
                     }
                 }
+                self.push_scope(ScopeKind::Function);
+                if let Some(p) = &l.parameters {
+                    let names = param_names(p);
+                    if let Some(scope) = self.scopes.last_mut() {
+                        scope.names.extend(
+                            names
+                                .into_iter()
+                                .map(|n| n.trim_start_matches('*').to_string()),
+                        );
+                    }
+                }
                 self.expr(&l.body);
+                self.pop_scope();
             }
             Expr::If(i) => {
                 self.metrics.complexity += 1;
@@ -647,23 +960,21 @@ impl<'a> Analyzer<'a> {
             Expr::List(l) => self.each(&l.elts),
             Expr::Tuple(t) => self.each(&t.elts),
             Expr::ListComp(c) => {
-                self.expr(&c.elt);
-                self.comprehensions(&c.generators);
+                self.comprehensions(&c.generators, |a| a.expr(&c.elt));
             }
             Expr::SetComp(c) => {
-                self.expr(&c.elt);
-                self.comprehensions(&c.generators);
+                self.comprehensions(&c.generators, |a| a.expr(&c.elt));
             }
             Expr::Generator(c) => {
-                self.expr(&c.elt);
-                self.comprehensions(&c.generators);
+                self.comprehensions(&c.generators, |a| a.expr(&c.elt));
             }
             Expr::DictComp(c) => {
-                if let Some(k) = &c.key {
-                    self.expr(k);
-                }
-                self.expr(&c.value);
-                self.comprehensions(&c.generators);
+                self.comprehensions(&c.generators, |a| {
+                    if let Some(k) = &c.key {
+                        a.expr(k);
+                    }
+                    a.expr(&c.value);
+                });
             }
             Expr::Await(a) => self.expr(&a.value),
             Expr::Yield(y) => {
@@ -704,14 +1015,31 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn comprehensions(&mut self, gens: &[ruff_python_ast::Comprehension]) {
+    /// A comprehension is its own scope: its targets bind there, the element
+    /// expression sees them, and nothing leaks out.
+    fn comprehensions(
+        &mut self,
+        gens: &[ruff_python_ast::Comprehension],
+        element: impl FnOnce(&mut Self),
+    ) {
+        self.push_scope(ScopeKind::Function);
         for g in gens {
             self.metrics.complexity += 1 + g.ifs.len() as u32;
             self.expr(&g.iter);
+            let line = self.src.line_of(g.range().start());
+            self.bind_target(
+                &g.target,
+                BindKind::Comprehension,
+                ValueKind::Unknown,
+                &g.iter,
+                line,
+            );
             for i in &g.ifs {
                 self.expr(i);
             }
         }
+        element(self);
+        self.pop_scope();
     }
 
     // -------------------------------------------------------------- bindings
@@ -745,6 +1073,7 @@ impl<'a> Analyzer<'a> {
                     "<proc>" => ValueKind::Process,
                     "<socket>" => ValueKind::Socket,
                     "<conn>" => ValueKind::Connection,
+                    "<archive>" => ValueKind::Archive,
                     _ => ValueKind::Unknown,
                 }
             }
@@ -770,7 +1099,19 @@ impl<'a> Analyzer<'a> {
         if value != ValueKind::Unknown {
             self.kinds.insert(name.to_string(), value);
         }
-        self.locals.insert(name.to_string());
+        // `f = os.system` makes `f(...)` a shell call; anything else assigned
+        // to `f` later stops it being one.
+        match self.callable_target(origin) {
+            Some(path) if kind == BindKind::Assign => {
+                self.callable_aliases.insert(name.to_string(), path);
+            }
+            _ => {
+                self.callable_aliases.remove(name);
+            }
+        }
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.names.insert(name.to_string());
+        }
         if let Some(&idx) = self.binding_at.get(name) {
             let existing = &mut self.bindings[idx];
             existing.rebinds += 1;
@@ -884,6 +1225,22 @@ impl<'a> Analyzer<'a> {
         let line = stmt_line(self.src, stmt);
         let end_line = self.src.line_of(stmt.range().end());
         let e0 = self.effects.len();
+        if depth > MAX_STMT_DEPTH {
+            self.depth_limit("a block", MAX_STMT_DEPTH as u32, stmt.range());
+            let label = clip(&squeeze(self.src.slice(stmt.range())), LABEL);
+            return self.finish(
+                id,
+                NodeKind::Expr,
+                label,
+                Some("not analysed: too deeply nested".into()),
+                line,
+                end_line,
+                depth,
+                e0,
+                e0,
+                vec![],
+            );
+        }
         // Effects recorded between `e0` and `own_end` belong to this statement
         // itself; anything after that was raised by a nested statement and is
         // that statement's to report. Arms with children close the window
@@ -902,6 +1259,22 @@ impl<'a> Analyzer<'a> {
         match stmt {
             Stmt::Import(s) => {
                 self.metrics.imports += s.names.len() as u32;
+                if self.scope.len() > 1 {
+                    for a in &s.names {
+                        let local = match &a.asname {
+                            Some(x) => x.to_string(),
+                            None => a.name.split('.').next().unwrap_or(&a.name).to_string(),
+                        };
+                        let label = format!("import {}", a.name);
+                        self.bind_name_only(
+                            &local,
+                            BindKind::Import,
+                            ValueKind::Module,
+                            &label,
+                            line,
+                        );
+                    }
+                }
                 let names: Vec<String> = s
                     .names
                     .iter()
@@ -923,6 +1296,22 @@ impl<'a> Analyzer<'a> {
                     Some(m) => format!("{}{m}", ".".repeat(s.level as usize)),
                     None => ".".repeat(s.level.max(1) as usize),
                 };
+                if self.scope.len() > 1 {
+                    for a in &s.names {
+                        if &*a.name == "*" {
+                            continue;
+                        }
+                        let local = a.asname.as_ref().unwrap_or(&a.name).to_string();
+                        let label = format!("from {module} import {}", a.name);
+                        self.bind_name_only(
+                            &local,
+                            BindKind::Import,
+                            ValueKind::Unknown,
+                            &label,
+                            line,
+                        );
+                    }
+                }
                 let names: Vec<String> = s
                     .names
                     .iter()
@@ -964,7 +1353,16 @@ impl<'a> Analyzer<'a> {
                 own_end = self.effects.len();
                 self.scope.push(s.name.to_string());
                 let saved_loop = std::mem::replace(&mut self.loop_depth, 0);
+                let state = self.snapshot();
+                self.push_scope(ScopeKind::Function);
+                for p in s.parameters.iter() {
+                    let pname = p.name().to_string();
+                    self.bind_name_only(&pname, BindKind::Param, ValueKind::Unknown, &pname, line);
+                }
+                self.prescan_local(&s.body);
                 let children = self.body(&s.body, depth + 1);
+                self.pop_scope();
+                self.restore(state);
                 self.loop_depth = saved_loop;
                 self.scope.pop();
                 self.bind_name_only(
@@ -1000,7 +1398,12 @@ impl<'a> Analyzer<'a> {
                 };
                 own_end = self.effects.len();
                 self.scope.push(s.name.to_string());
+                let state = self.snapshot();
+                self.push_scope(ScopeKind::Class);
+                self.prescan_local(&s.body);
                 let children = self.body(&s.body, depth + 1);
+                self.pop_scope();
+                self.restore(state);
                 self.scope.pop();
                 self.bind_name_only(
                     s.name.as_str(),
@@ -1175,6 +1578,14 @@ impl<'a> Analyzer<'a> {
                     }
                     if let Some(name) = &h.name {
                         label.push_str(&format!(" as {name}"));
+                        let hl = self.src.line_of(h.range().start());
+                        self.bind_name_only(
+                            name.as_str(),
+                            BindKind::ExceptVar,
+                            ValueKind::Unknown,
+                            &label,
+                            hl,
+                        );
                     }
                     let h_own = self.effects.len();
                     let hchildren = self.body(&h.body, depth + 2);
@@ -1287,7 +1698,17 @@ impl<'a> Analyzer<'a> {
                 node!(NodeKind::Assert, label, None, vec![])
             }
             Stmt::Delete(s) => {
-                self.each(&s.targets);
+                for t in &s.targets {
+                    match t {
+                        Expr::Subscript(sub)
+                            if self.on_env_subscript(sub, "unsetenv", Severity::Notable) =>
+                        {
+                            self.expr(&sub.value);
+                            self.expr(&sub.slice);
+                        }
+                        other => self.expr(other),
+                    }
+                }
                 let names = s
                     .targets
                     .iter()
@@ -1362,6 +1783,7 @@ impl<'a> Analyzer<'a> {
     fn expr_store(&mut self, target: &Expr) {
         match target {
             Expr::Subscript(s) => {
+                self.on_env_subscript(s, "setenv", Severity::Notable);
                 self.expr(&s.value);
                 self.expr(&s.slice);
             }
@@ -1414,8 +1836,12 @@ impl<'a> Analyzer<'a> {
         label: &str,
         line: u32,
     ) {
-        self.kinds.insert(name.to_string(), value);
-        self.locals.insert(name.to_string());
+        if value != ValueKind::Unknown {
+            self.kinds.insert(name.to_string(), value);
+        }
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.names.insert(name.to_string());
+        }
         if self.binding_at.contains_key(name) {
             return;
         }
@@ -1459,6 +1885,14 @@ impl<'a> Analyzer<'a> {
     }
 }
 
+/// The tables [`Analyzer::snapshot`] saves around a nested scope.
+struct ScopeState {
+    kinds: HashMap<String, ValueKind>,
+    consts: HashMap<String, String>,
+    origins: HashMap<String, String>,
+    callable_aliases: HashMap<String, String>,
+}
+
 /// Everything the walk collected, handed over in one piece.
 pub struct Findings {
     pub imports: Vec<ImportInfo>,
@@ -1472,7 +1906,7 @@ pub struct Findings {
     pub max_depth: u16,
 }
 
-fn symbol_group(canonical: &str, locals: &HashSet<String>) -> String {
+fn symbol_group(canonical: &str, is_local: bool) -> String {
     if canonical.starts_with('<') {
         return canonical
             .split('.')
@@ -1484,7 +1918,7 @@ fn symbol_group(canonical: &str, locals: &HashSet<String>) -> String {
     match canonical.rsplit_once('.') {
         Some((module, _)) => module.to_string(),
         None => {
-            if locals.contains(canonical) {
+            if is_local {
                 "<local>".into()
             } else {
                 "<builtins>".into()

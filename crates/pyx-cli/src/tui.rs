@@ -2,7 +2,7 @@
 //! on a key, so a look gets chosen by flipping through candidates against real
 //! code rather than by reading a description of it.
 
-use std::io::{self, Stdout, Write};
+use std::io::{self, IsTerminal, Stdout, Write};
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -38,9 +38,17 @@ pub fn run(report: &Report, a: &Args) -> io::Result<()> {
         code: a.opts.code,
         gutter: a.opts.gutter,
         scroll: 0,
-        status: "t theme · l layout · i icons · d depth · c code · s save · q quit".into(),
+        status: [
+            "t theme", "l layout", "i icons", "d depth", "c code", "s save", "q quit",
+        ]
+        .join(a.theme.gl.sep),
     };
 
+    if !io::stdout().is_terminal() {
+        return Err(io::Error::other(
+            "--tui needs a terminal on stdout; use -f text or -o FILE to write elsewhere",
+        ));
+    }
     let mut out = io::stdout();
     terminal::enable_raw_mode()?;
     execute!(out, terminal::EnterAlternateScreen, cursor::Hide)?;
@@ -165,11 +173,14 @@ fn draw(out: &mut Stdout, report: &Report, state: &State) -> io::Result<()> {
     let window = crop(&buf, top, body_h);
     screen.push_str(&export::to_ansi(&window, &theme));
 
-    // Status line, in the theme's own colours so it never fights the render.
-    let (br, bg, bb) = export::to_rgb(theme.pal.rule, &theme, true);
-    let (fr, fg, fb) = export::to_rgb(theme.pal.fg, &theme, false);
+    // Status line, in the theme's own colours so it never fights the render —
+    // and through the same SGR path, so a 16-colour theme stays 16-colour.
+    let bar = ratatui::style::Style::default()
+        .bg(theme.pal.rule)
+        .fg(theme.pal.fg);
+    let sep = theme.gl.sep;
     let left = format!(
-        " {} · {} · {:?} · depth {} ",
+        " {}{sep}{}{sep}{:?}{sep}depth {} ",
         theme.name,
         l.id(),
         state.icons,
@@ -180,12 +191,15 @@ fn draw(out: &mut Stdout, report: &Report, state: &State) -> io::Result<()> {
     } else {
         String::new()
     };
-    let pad = (w as usize).saturating_sub(
-        left.chars().count() + right.chars().count() + state.status.chars().count() + 3,
-    );
+    let used = pyxray_render::canvas::width(&left)
+        + pyxray_render::canvas::width(&right)
+        + pyxray_render::canvas::width(&state.status)
+        + 3;
+    let pad = (w as usize).saturating_sub(used as usize);
     screen.push_str(&format!(
-        "\x1b[{};1H\x1b[48;2;{br};{bg};{bb}m\x1b[38;2;{fr};{fg};{fb}m{left}\x1b[2m {} \x1b[22m{}{right}\x1b[0m",
+        "\x1b[{};1H{}{left}\x1b[2m {} \x1b[22m{}{right}\x1b[0m",
         h,
+        export::sgr(bar, &theme),
         state.status,
         " ".repeat(pad)
     ));

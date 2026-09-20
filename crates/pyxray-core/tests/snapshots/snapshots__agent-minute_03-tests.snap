@@ -1,0 +1,210 @@
+---
+source: crates/pyxray-core/tests/snapshots.rs
+expression: report
+---
+{
+  "schema": 1,
+  "meta": {
+    "name": "agent-minute_03-tests.py",
+    "bytes": 142,
+    "parsed": true,
+    "synopsis": "runs `pytest -q tests/` → prints results",
+    "headline": [
+      "runs `pytest -q tests/`",
+      "prints results"
+    ]
+  },
+  "spine": {
+    "id": 0,
+    "kind": "module",
+    "label": "agent-minute_03-tests.py",
+    "detail": null,
+    "line": 1,
+    "end_line": 4,
+    "depth": 0,
+    "own_effects": 0,
+    "effects": 144,
+    "severity": "caution",
+    "weight": 4,
+    "children": [
+      {
+        "id": 1,
+        "kind": "import",
+        "label": "import subprocess",
+        "detail": null,
+        "line": 1,
+        "end_line": 1,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 2,
+        "kind": "assign",
+        "label": "result = subprocess.run([\"pytest\", \"-q\", \"tests/\"], …2)",
+        "detail": null,
+        "line": 3,
+        "end_line": 3,
+        "depth": 0,
+        "own_effects": 16,
+        "effects": 16,
+        "severity": "caution",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 3,
+        "kind": "call",
+        "label": "print(result.stdout.decode()[-400:])",
+        "detail": null,
+        "line": 4,
+        "end_line": 4,
+        "depth": 0,
+        "own_effects": 128,
+        "effects": 128,
+        "severity": "info",
+        "weight": 1,
+        "children": []
+      }
+    ]
+  },
+  "imports": [
+    {
+      "module": "subprocess",
+      "names": [],
+      "alias": null,
+      "line": 1,
+      "third_party": false,
+      "deferred": false
+    }
+  ],
+  "effects": [
+    {
+      "effect": "process",
+      "severity": "caution",
+      "verb": "run",
+      "symbol": "subprocess.run",
+      "target": "pytest -q tests/",
+      "line": 3,
+      "col": 10,
+      "snippet": "subprocess.run([\"pytest\", \"-q\", \"tests/\"], check=False,…",
+      "note": "runs an external command; check=False — a failing command is ignored"
+    },
+    {
+      "effect": "stdout",
+      "severity": "info",
+      "verb": "print",
+      "symbol": "print",
+      "target": "result.stdout.decode()[-400:]",
+      "line": 4,
+      "col": 1,
+      "snippet": "print(result.stdout.decode()[-400:])",
+      "note": null
+    }
+  ],
+  "symbols": [
+    {
+      "canonical": "print",
+      "display": "print",
+      "group": "<builtins>",
+      "origin": "builtin",
+      "count": 1,
+      "lines": [
+        4
+      ],
+      "effects": 128
+    },
+    {
+      "canonical": "subprocess.run",
+      "display": "subprocess.run",
+      "group": "subprocess",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        3
+      ],
+      "effects": 16
+    }
+  ],
+  "bindings": [
+    {
+      "name": "result",
+      "kind": "assign",
+      "value": "process",
+      "origin": "subprocess.run([3 items], …2)",
+      "scope": "<module>",
+      "line": 3,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    }
+  ],
+  "metrics": {
+    "lines_total": 4,
+    "lines_code": 3,
+    "lines_comment": 0,
+    "lines_blank": 1,
+    "statements": 3,
+    "max_depth": 0,
+    "complexity": 1,
+    "functions": 0,
+    "classes": 0,
+    "async_defs": 0,
+    "calls": 3,
+    "imports": 1,
+    "loops": 0,
+    "branches": 0,
+    "handlers": 0,
+    "risk": 31
+  },
+  "texture": [
+    {
+      "indent": 0,
+      "width": 17,
+      "blank": false,
+      "comment": false,
+      "kind": "import",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 0,
+      "blank": true,
+      "comment": false,
+      "kind": null,
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 85,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 16,
+      "severity": "caution"
+    },
+    {
+      "indent": 0,
+      "width": 36,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 128,
+      "severity": "info"
+    }
+  ],
+  "diagnostics": [],
+  "source": [
+    "import subprocess",
+    "",
+    "result = subprocess.run([\"pytest\", \"-q\", \"tests/\"], check=False, capture_output=True)",
+    "print(result.stdout.decode()[-400:])"
+  ]
+}

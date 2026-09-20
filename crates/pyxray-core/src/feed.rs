@@ -23,21 +23,43 @@ pub const MAX_BYTES: u64 = 4 * 1024 * 1024;
 ///
 /// Prefers the per-user runtime directory: it is a tmpfs on every systemd
 /// machine, so a chatty session costs no disk quota and the log dies with the
-/// login, which is the right lifetime for it.
+/// login, which is the right lifetime for it. Elsewhere it falls back to a
+/// directory that is still *per user* — `%LOCALAPPDATA%` on Windows, the
+/// per-user `$TMPDIR` on macOS, then the cache directory — rather than a
+/// shared, guessable path in `/tmp`.
 pub fn default_path() -> PathBuf {
-    if let Ok(explicit) = std::env::var("PYXRAY_LOG") {
-        if !explicit.is_empty() {
-            return PathBuf::from(explicit);
+    let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    if let Some(explicit) = var("PYXRAY_LOG") {
+        return PathBuf::from(explicit);
+    }
+    if let Some(runtime) = var("XDG_RUNTIME_DIR") {
+        return PathBuf::from(runtime).join("pyxray").join("feed.jsonl");
+    }
+    if cfg!(windows) {
+        if let Some(local) = var("LOCALAPPDATA") {
+            return PathBuf::from(local).join("pyxray").join("feed.jsonl");
         }
     }
-    if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
-        if !runtime.is_empty() {
-            return PathBuf::from(runtime).join("pyxray").join("feed.jsonl");
+    if cfg!(target_os = "macos") {
+        // macOS gives every user their own $TMPDIR under /var/folders.
+        if let Some(tmp) = var("TMPDIR") {
+            return PathBuf::from(tmp).join("pyxray").join("feed.jsonl");
         }
     }
-    let uid = std::env::var("UID").unwrap_or_else(|_| "user".into());
+    if let Some(cache) = var("XDG_CACHE_HOME") {
+        return PathBuf::from(cache).join("pyxray").join("feed.jsonl");
+    }
+    if let Some(home) = var("HOME").or_else(|| var("USERPROFILE")) {
+        return PathBuf::from(home)
+            .join(".cache")
+            .join("pyxray")
+            .join("feed.jsonl");
+    }
+    let who = var("USER")
+        .or_else(|| var("USERNAME"))
+        .unwrap_or_else(|| "user".into());
     std::env::temp_dir()
-        .join(format!("pyxray-{uid}"))
+        .join(format!("pyxray-{who}"))
         .join("feed.jsonl")
 }
 
@@ -81,11 +103,19 @@ pub fn read_all(path: &Path) -> std::io::Result<Vec<Event>> {
     };
     let mut out = Vec::new();
     for line in BufReader::new(file).lines().map_while(Result::ok) {
-        if let Ok(event) = serde_json::from_str::<Event>(&line) {
+        if let Some(event) = parse_line(&line) {
             out.push(event);
         }
     }
     Ok(out)
+}
+
+/// One feed line → one event, or nothing: a half-written line from a
+/// concurrent append is normal, and so is a line written by a newer build
+/// whose schema this one does not understand.
+pub fn parse_line(line: &str) -> Option<Event> {
+    let event = serde_json::from_str::<Event>(line).ok()?;
+    (event.schema <= crate::model::SCHEMA).then_some(event)
 }
 
 /// A cursor over a growing log, for tailing it.
@@ -166,7 +196,7 @@ impl Tail {
             if piece.is_empty() {
                 continue;
             }
-            if let Ok(event) = serde_json::from_str::<Event>(piece) {
+            if let Some(event) = parse_line(piece) {
                 out.push(event);
             }
         }
@@ -205,6 +235,31 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(events[1].risk > events[0].risk);
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn event_without_schema_still_parses_and_newer_schema_is_skipped() {
+        // A line exactly as builds before versioning wrote it.
+        let old = r#"{"ts":1,"name":"x","source":"shim","lines":1,"risk":0,"band":"inert","mask":0,"worst":null,"synopsis":"prints results","notes":[],"blocked":false}"#;
+        let event = parse_line(old).expect("pre-versioning line parses");
+        assert_eq!(event.schema, 0);
+        let newer = old.replacen(
+            "{",
+            &format!("{{\"schema\":{},", crate::model::SCHEMA + 1),
+            1,
+        );
+        assert!(parse_line(&newer).is_none(), "{newer}");
+        assert!(parse_line("{\"ts\":").is_none());
+    }
+
+    #[test]
+    fn the_default_path_is_never_a_shared_tmp_dir() {
+        // Can't clear the environment safely in-process; check the shape of
+        // the answer instead: whatever it is, it is not the old shared path.
+        let p = default_path();
+        let text = p.display().to_string();
+        assert!(!text.contains("pyxray-user"), "{text}");
+        assert!(text.ends_with("feed.jsonl"), "{text}");
     }
 
     #[test]

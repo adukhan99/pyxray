@@ -2,7 +2,7 @@
 //! everything the layouts draw goes through one of those three, so a new look
 //! is a data change rather than a code change.
 
-use pyxray_core::model::{Effect, NodeKind, Severity, ValueKind};
+use pyxray_core::model::{Band, Effect, NodeKind, Severity, ValueKind};
 use ratatui::style::{Color, Modifier, Style};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,7 +46,7 @@ pub struct Palette {
     pub warn: Color,
     pub danger: Color,
     /// One colour per [`Effect`], indexed by `Effect as usize`.
-    pub effects: [Color; 13],
+    pub effects: [Color; Effect::COUNT],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -69,11 +69,23 @@ pub struct Glyphs {
     /// Eight-step ramp for bars and the minimap, lightest first.
     pub ramp: [char; 8],
     /// One character per [`Effect`].
-    pub effect_icons: [char; 13],
+    pub effect_icons: [char; Effect::COUNT],
     /// Severity markers: info, notable, caution.
     pub severity: [char; 3],
     pub check: char,
     pub cross: char,
+    /// A solid cell, for band strips and full bars.
+    pub block: char,
+    /// An unlit barcode slot.
+    pub dot: char,
+    /// The empty part of a meter.
+    pub track: char,
+    /// Between items on one line: `a · b`.
+    pub sep: &'static str,
+    /// A dash between clauses.
+    pub dash: &'static str,
+    /// The caution mark beside an effect.
+    pub bang: char,
 }
 
 pub const UNICODE: Glyphs = Glyphs {
@@ -105,6 +117,12 @@ pub const UNICODE: Glyphs = Glyphs {
     severity: [' ', '\u{00b7}', '!'],
     check: '\u{221a}',
     cross: '\u{00d7}',
+    block: '\u{2588}',
+    dot: '\u{00b7}',
+    track: '\u{2591}',
+    sep: " \u{00b7} ",
+    dash: "\u{2014}",
+    bang: '!',
 };
 
 pub const ASCII: Glyphs = Glyphs {
@@ -128,6 +146,12 @@ pub const ASCII: Glyphs = Glyphs {
     severity: [' ', '-', '!'],
     check: 'y',
     cross: 'x',
+    block: '#',
+    dot: '.',
+    track: '.',
+    sep: " | ",
+    dash: "--",
+    bang: '!',
 };
 
 const HEAVY: Glyphs = Glyphs {
@@ -569,24 +593,35 @@ impl Theme {
         }
     }
 
-    /// A risk score, coloured by band rather than by continuous gradient — the
-    /// bands are the thing a reader acts on.
-    pub fn risk_color(&self, risk: u8) -> Color {
-        match risk {
-            0..=9 => self.pal.dim,
-            10..=29 => self.pal.ok,
-            30..=59 => self.pal.warn,
-            _ => self.pal.danger,
+    /// The colour of a band. Everything that colours a risk goes through
+    /// here, with the *band* — severity first, score second, exactly as
+    /// [`Band::assess`] decides it — so the word, the cells and the number
+    /// on one row can never disagree.
+    pub fn risk_color(&self, band: Band) -> Color {
+        match band {
+            Band::Inert => self.pal.faint,
+            Band::Routine => self.pal.ok,
+            Band::Check => self.pal.warn,
+            Band::Read => self.pal.danger,
         }
     }
 
-    pub fn risk_word(&self, risk: u8) -> &'static str {
-        match risk {
-            0..=9 => "inert",
-            10..=29 => "routine",
-            30..=59 => "check it",
-            _ => "read it first",
+    pub fn risk_word(&self, band: Band) -> &'static str {
+        match band {
+            Band::Inert => "inert",
+            Band::Routine => "routine",
+            Band::Check => "check it",
+            Band::Read => "read it first",
         }
+    }
+
+    /// Text built without a theme in hand (the synopsis, notes) uses `→` and
+    /// `—`; swap in whatever this theme's glyph set draws them with, so an
+    /// ASCII theme stays ASCII all the way through.
+    pub fn localise(&self, s: &str) -> String {
+        s.replace('\u{2192}', self.gl.arrow)
+            .replace('\u{2014}', self.gl.dash)
+            .replace('\u{2026}', &self.gl.ellipsis.to_string())
     }
 
     /// Apply the theme's heading transform.

@@ -1,0 +1,742 @@
+[
+ {
+  "name": "heredoc quoted",
+  "command": "python3 <<'EOF'\nprint(1)\nEOF\n",
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "heredoc <<EOF"
+   }
+  ]
+ },
+ {
+  "name": "heredoc double quoted",
+  "command": "python3 <<\"PY\"\nx = 2\nPY\n",
+  "expect": [
+   {
+    "source": "x = 2\n",
+    "label": "heredoc <<PY"
+   }
+  ]
+ },
+ {
+  "name": "heredoc bare",
+  "command": "python3 << END\nprint(3)\nEND\n",
+  "expect": [
+   {
+    "source": "print(3)\n",
+    "label": "heredoc <<END"
+   }
+  ]
+ },
+ {
+  "name": "heredoc dash strips tabs",
+  "command": "python3 <<-END\n\tprint(3)\n\tEND\n",
+  "expect": [
+   {
+    "source": "print(3)\n",
+    "label": "heredoc <<END"
+   }
+  ]
+ },
+ {
+  "name": "heredoc crlf",
+  "command": "python3 <<'EOF'\r\nprint(1)\r\nEOF\r\n",
+  "expect": [
+   {
+    "source": "print(1)\r\n",
+    "label": "heredoc <<EOF"
+   }
+  ]
+ },
+ {
+  "name": "heredoc unterminated",
+  "command": "python3 <<'EOF'\nprint(1)\n",
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "heredoc <<EOF (unterminated)"
+   }
+  ]
+ },
+ {
+  "name": "heredoc after dash stdin",
+  "command": "python3 -u - <<'PY'\nimport os\nPY\n",
+  "expect": [
+   {
+    "source": "import os\n",
+    "label": "heredoc <<PY"
+   }
+  ]
+ },
+ {
+  "name": "heredoc piped elsewhere",
+  "command": "python3 <<'EOF' | tee log\nprint(1)\nEOF\n",
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "heredoc <<EOF"
+   }
+  ]
+ },
+ {
+  "name": "two pythons two heredocs",
+  "command": "python3 <<'A' && python3 <<'B'\nprint('a')\nA\nprint('b')\nB\n",
+  "expect": [
+   {
+    "source": "print('a')\n",
+    "label": "heredoc <<A"
+   },
+   {
+    "source": "print('b')\n",
+    "label": "heredoc <<B"
+   }
+  ]
+ },
+ {
+  "name": "heredoc body keeps blank lines and indentation",
+  "command": "python3 <<'EOF'\n\ndef f():\n    return 1\n\nEOF\n",
+  "expect": [
+   {
+    "source": "\ndef f():\n    return 1\n\n",
+    "label": "heredoc <<EOF"
+   }
+  ]
+ },
+ {
+  "name": "cat heredoc piped",
+  "command": "cat <<'EOF' | python3\nprint(9)\nEOF\n",
+  "expect": [
+   {
+    "source": "print(9)\n",
+    "label": "heredoc <<EOF"
+   }
+  ]
+ },
+ {
+  "name": "here-string",
+  "command": "python3 <<< 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "here-string <<<"
+   }
+  ]
+ },
+ {
+  "name": "dash c single quotes",
+  "command": "python3 -c 'print(4)'",
+  "expect": [
+   {
+    "source": "print(4)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "dash c double quotes",
+  "command": "python -c \"import os; os.system('id')\"",
+  "expect": [
+   {
+    "source": "import os; os.system('id')",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "dash c then more shell",
+  "command": "python3 -c 'print(1)' && echo 'done'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "dash c with shift operator",
+  "command": "python3 -c \"x = 1 << 2; print(x)\"",
+  "expect": [
+   {
+    "source": "x = 1 << 2; print(x)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "dash c glued",
+  "command": "python3 -c'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "dash c in cluster",
+  "command": "python3 -uBc 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "dash c after value flag",
+  "command": "python3 -W ignore -c 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "dash c escaped newline",
+  "command": "python3 -c \"import os\\nos.system('id')\"",
+  "expect": [
+   {
+    "source": "import os\\nos.system('id')",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "script present",
+  "command": "python3 run.py --fast",
+  "files": {
+   "run.py": "import os\nos.remove('x')\n"
+  },
+  "expect": [
+   {
+    "source": "import os\nos.remove('x')\n",
+    "label": "run.py"
+   }
+  ]
+ },
+ {
+  "name": "script absent",
+  "command": "python3 missing.py",
+  "expect": [
+   {
+    "source": "",
+    "label": "missing.py (unreadable)"
+   }
+  ]
+ },
+ {
+  "name": "script relative to cd",
+  "command": "cd sub && python3 s.py",
+  "files": {
+   "sub/s.py": "print('sub')\n"
+  },
+  "expect": [
+   {
+    "source": "print('sub')\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "script after cd twice",
+  "command": "cd a; cd b; python3 s.py",
+  "files": {
+   "a/b/s.py": "print('ab')\n"
+  },
+  "expect": [
+   {
+    "source": "print('ab')\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "script with X flag",
+  "command": "python3 -X faulthandler s.py",
+  "files": {
+   "s.py": "print('x')\n"
+  },
+  "expect": [
+   {
+    "source": "print('x')\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "script with W flag",
+  "command": "python3 -W ignore s.py",
+  "files": {
+   "s.py": "print('w')\n"
+  },
+  "expect": [
+   {
+    "source": "print('w')\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "script versioned interpreter",
+  "command": "python3.12 s.py",
+  "files": {
+   "s.py": "print(12)\n"
+  },
+  "expect": [
+   {
+    "source": "print(12)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "script absolute interpreter",
+  "command": "/usr/bin/python3 s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "py launcher",
+  "command": "py -3 s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "py launcher version and -c",
+  "command": "py -3.12 -c 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "python.exe",
+  "command": "python.exe -c 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "windows path interpreter",
+  "command": "C:\\Python312\\python.exe s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "pypy",
+  "command": "pypy3 s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "stdin redirect",
+  "command": "python3 < s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "cat pipe",
+  "command": "cat s.py | python3",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "cat pipe dash",
+  "command": "cat s.py | python3 -",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "echo pipe",
+  "command": "echo 'print(1)' | python3",
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "<pipe> echo"
+   }
+  ]
+ },
+ {
+  "name": "curl pipe is unreadable",
+  "command": "curl -s https://x/y.py | python3 -",
+  "expect": [
+   {
+    "source": "",
+    "label": "<pipe> curl"
+   }
+  ]
+ },
+ {
+  "name": "redirections ignored",
+  "command": "python3 s.py > out.log 2>&1",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "env wrapper",
+  "command": "env python3 s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "assignment wrapper",
+  "command": "PYTHONPATH=. FOO=1 python3 s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "exec wrapper",
+  "command": "exec python3 -c 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "nohup background",
+  "command": "nohup python3 s.py &",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "time wrapper",
+  "command": "time python3 -c 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "sudo wrapper",
+  "command": "sudo -E -u root python3 -c 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "timeout wrapper",
+  "command": "timeout -k 5 30 python3 -c 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "uv run python",
+  "command": "uv run python s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "uv run script",
+  "command": "uv run --with requests s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "uv run -c",
+  "command": "uv run python -c 'import os'",
+  "expect": [
+   {
+    "source": "import os",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "poetry run",
+  "command": "poetry run python -c 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "pdm run",
+  "command": "pdm run python s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "hatch run",
+  "command": "hatch run python s.py",
+  "files": {
+   "s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "conda run",
+  "command": "conda run -n base python -c 'print(1)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "bash -c",
+  "command": "bash -c \"python3 -c 'print(1)'\"",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "sh -c with heredoc inside",
+  "command": "sh -c 'python3 <<EOF\nprint(1)\nEOF'",
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "heredoc <<EOF"
+   }
+  ]
+ },
+ {
+  "name": "bash -lc",
+  "command": "bash -lc 'python3 -c \"print(1)\"'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "subshell",
+  "command": "(cd sub && python3 s.py)",
+  "files": {
+   "sub/s.py": "print(1)\n"
+  },
+  "expect": [
+   {
+    "source": "print(1)\n",
+    "label": "s.py"
+   }
+  ]
+ },
+ {
+  "name": "two chained pythons",
+  "command": "python3 -c 'print(1)'; python3 -c 'print(2)'",
+  "expect": [
+   {
+    "source": "print(1)",
+    "label": "python -c"
+   },
+   {
+    "source": "print(2)",
+    "label": "python -c"
+   }
+  ]
+ },
+ {
+  "name": "git status",
+  "command": "git status",
+  "expect": []
+ },
+ {
+  "name": "ls",
+  "command": "ls -la",
+  "expect": []
+ },
+ {
+  "name": "quoted python is text",
+  "command": "echo \"python3 -c 'print(1)'\"",
+  "expect": []
+ },
+ {
+  "name": "not an interpreter",
+  "command": "mypython3 s.py",
+  "expect": []
+ },
+ {
+  "name": "pythonic tool",
+  "command": "pythonic-tool --flag",
+  "expect": []
+ },
+ {
+  "name": "module run is not read",
+  "command": "python3 -m pytest -q",
+  "expect": []
+ },
+ {
+  "name": "pip is not python",
+  "command": "pip install requests",
+  "expect": []
+ },
+ {
+  "name": "python -m pip",
+  "command": "python3 -m pip install x",
+  "expect": []
+ },
+ {
+  "name": "interactive python",
+  "command": "python3",
+  "expect": []
+ },
+ {
+  "name": "bare python code passes through extract_python only",
+  "command": "print('bare')\n",
+  "expect": []
+ },
+ {
+  "name": "comment is ignored",
+  "command": "# python3 -c 'print(1)'\nls",
+  "expect": []
+ },
+ {
+  "name": "uvx is not python",
+  "command": "uvx ruff check .",
+  "expect": []
+ },
+ {
+  "name": "pipx run",
+  "command": "pipx run black .",
+  "expect": []
+ },
+ {
+  "name": "bash script is opaque",
+  "command": "bash run.sh",
+  "expect": []
+ },
+ {
+  "name": "depth zero ignores bash -c",
+  "command": "bash -c 'python3 -c \"print(1)\"'",
+  "depth": 0,
+  "expect": []
+ },
+ {
+  "name": "empty",
+  "command": "",
+  "expect": []
+ },
+ {
+  "name": "only newlines",
+  "command": "\n\n",
+  "expect": []
+ }
+]

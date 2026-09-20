@@ -14,7 +14,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pyxray
-from pyxray.heredoc import extract_python
 
 SKETCHY = """
 import os, shutil, subprocess
@@ -63,18 +62,20 @@ def test_every_theme_and_layout_renders():
             assert out.strip()
 
 
-def test_heredoc_extraction_matches_the_rust_side():
+def test_extract_has_one_implementation():
     cases = [
         ("python3 <<'EOF'\nprint(1)\nEOF\n", "print(1)\n"),
         ('python3 <<"PY"\nx = 2\nPY\n', "x = 2\n"),
-        ("python3 <<-END\nprint(3)\n\tEND\n", "print(3)\n"),
+        ("python3 <<-END\n\tprint(3)\n\tEND\n", "print(3)\n"),
         ("python3 -c 'print(4)'", "print(4)"),
+        ("cd /tmp && env FOO=1 python3 -c 'print(5)' && echo done", "print(5)"),
         ("print('bare')\n", "print('bare')\n"),
     ]
+    from pyxray.heredoc import extract_python  # the deprecated forwarder
+
     for command, expected in cases:
+        assert pyxray.extract(command)[0] == expected, command
         assert extract_python(command)[0] == expected, command
-        if pyxray.backend() == "extension":
-            assert pyxray.extract(command)[0] == expected, command
 
 
 def test_interceptor_gate_refuses_and_reports_why():
@@ -133,8 +134,8 @@ def test_hook_finds_python_in_every_harness_shape():
     ]
     for payload, needle in cases:
         found = python_in_payload(payload)
-        assert found is not None, payload
-        assert needle in found[0], (payload, found)
+        assert found, payload
+        assert needle in found[0][0], (payload, found)
 
 
 def test_hook_ignores_things_that_are_not_python():
@@ -145,9 +146,14 @@ def test_hook_ignores_things_that_are_not_python():
         {"tool_name": "Bash", "tool_input": {"command": "ls -la /tmp"}},
         {"tool_name": "Read", "tool_input": {"file_path": "/etc/hosts"}},
         {"tool_name": "Bash", "tool_input": {}},
+        {"tool_name": "Write", "tool_input": {"file_path": "/x", "content": "hello\nworld"}},
+        {"tool_name": "Edit", "tool_input": {"old_string": "a = 1", "new_string": "a = 2"}},
+        {"tool_name": "mystery", "input": {"content": "a = 1\n"}},
+        {"tool_name": "mystery", "input": {"script": "ls -la\ngit status"}},
+        {"tool_name": "Bash", "tool_input": {"command": "echo \"python3 -c 'print(1)'\""}},
         {},
     ]:
-        assert python_in_payload(payload) is None, payload
+        assert python_in_payload(payload) == [], payload
 
 
 def test_gate_off_is_the_default_and_zero_is_not_off():
@@ -208,8 +214,8 @@ if __name__ == "__main__":
             try:
                 fn()
                 print(f"ok    {name}")
-            except AssertionError as exc:
+            except Exception as exc:  # noqa: BLE001 — a crash is a failure too
                 failures += 1
-                print(f"FAIL  {name}: {exc}")
+                print(f"FAIL  {name}: {exc!r}")
     print(f"\n{failures} failure(s)")
     raise SystemExit(1 if failures else 0)

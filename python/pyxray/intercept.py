@@ -15,18 +15,25 @@ default and pyxray only describes. Note that ``PYXRAY_GATE=0`` is not "no
 gate" — it refuses anything with any effect at all, which is almost never what
 someone means. ``off`` is spelled out for that reason.
 
+And a rule above both: **the observer never breaks the thing it observes.**
+A hook exits 0 whatever happens inside it, and the wrapper runs the user's
+command whether or not the analysis worked. Set ``PYXRAY_DEBUG=1`` to hear
+about the failures it would otherwise swallow.
+
 Entry points
 ------------
 ``python -m pyxray.intercept -- python3 script.py``
-    Render, record, then run. Alias or symlink this as ``python3``.
+    Record, draw if watched, then run. This is what the PATH shim calls.
 
 ``python -m pyxray.intercept --hook``
     A ``PreToolUse``-shaped hook. Reads a JSON payload on stdin, finds the
-    Python in it, records it, and optionally asks the harness to stop.
+    Python in it (a tool that takes code, or a shell command with Python in
+    it — a script path, a heredoc, ``-c``, ``bash -c``, a pipe), records it,
+    and optionally asks the harness to stop.
 
 Environment
     PYXRAY_OFF=1        do nothing at all
-    PYXRAY_LOG          feed log path (default: $XDG_RUNTIME_DIR/pyxray/…)
+    PYXRAY_LOG          feed log path (default: the per-user runtime directory)
     PYXRAY_DRAW         never | tty | always   (default: tty)
     PYXRAY_TTY          draw to this device instead, e.g. /dev/pts/7
     PYXRAY_LAYOUT       line | auto | card | dashboard | stack | flow
@@ -34,26 +41,45 @@ Environment
     PYXRAY_ICONS        glyph | tag | both
     PYXRAY_WIDTH        columns
     PYXRAY_GATE         off (default) or a risk score to refuse above
-    PYXRAY_CONFIRM=1    ask before running
+    PYXRAY_CONFIRM=1    ask before running (wrapper only)
     PYXRAY_MIN_LINES    ignore snippets shorter than this
+    PYXRAY_SOURCE       label hook events with this origin
+    PYXRAY_DEBUG=1      report swallowed errors on stderr
+    PYXRAY_BIN          the pyx binary to use when the extension is absent
+    PYXRAY_PYTHON       the interpreter the hook launcher should use
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from typing import Any
 
 from ._native import engine
-from .heredoc import extract_python
 
-__all__ = ["main", "look", "should_run", "gate", "draw_target"]
+__all__ = ["main", "look", "should_run", "gate", "draw_target", "python_in_payload"]
 
 #: Risk scores at or above this get the full card under ``layout=auto``.
 CARD_FROM = 30
+
+#: The event `look` returns when it has nothing to say.
+INERT: dict[str, Any] = {
+    "risk": 0,
+    "band": "inert",
+    "synopsis": "",
+    "notes": [],
+    "blocked": False,
+    "mask": 0,
+}
+
+
+def _debug(msg: str) -> None:
+    if os.environ.get("PYXRAY_DEBUG") == "1":
+        print(f"pyxray: {msg}", file=sys.stderr)
 
 
 def _env_int(name: str, default: int | None = None) -> int | None:
@@ -119,13 +145,15 @@ def look(code: str, name: str = "<stdin>", source: str = "shim") -> dict[str, An
     Returns the feed event: ``risk``, ``band``, ``synopsis``, ``notes`` and the
     capability ``mask``. Cheap enough to call on every snippet — the analysis
     is a couple of milliseconds and the render is skipped when unwatched.
+    Never raises: if the engine is missing or fails, the event is inert and
+    carries an ``error`` key.
     """
     if os.environ.get("PYXRAY_OFF") == "1":
-        return {"risk": 0, "band": "inert", "synopsis": "", "notes": [], "blocked": False}
+        return dict(INERT)
 
     minimum = _env_int("PYXRAY_MIN_LINES", 0) or 0
     if minimum and len(code.splitlines()) < minimum:
-        return {"risk": 0, "band": "inert", "synopsis": "", "notes": [], "blocked": False}
+        return dict(INERT)
 
     stream = draw_target()
     kwargs = dict(
@@ -139,7 +167,15 @@ def look(code: str, name: str = "<stdin>", source: str = "shim") -> dict[str, An
         width=_width(),
         format="ansi",
     )
-    event, rendered = engine().look(code, **kwargs)
+    try:
+        event, rendered = engine().look(code, **kwargs)
+    except Exception as exc:  # noqa: BLE001 — the observer must not break the observed
+        _debug(f"could not analyse {name}: {exc}")
+        event = dict(INERT)
+        event["error"] = str(exc)
+        rendered = ""
+    if event.get("feed_error"):
+        _debug(f"feed not written: {event['feed_error']}")
     if stream is not None and rendered:
         try:
             stream.write(rendered)
@@ -152,6 +188,18 @@ def look(code: str, name: str = "<stdin>", source: str = "shim") -> dict[str, An
     return event
 
 
+def _tty_prompt(prompt: str) -> str | None:
+    """Ask on the controlling terminal, even when stdin has been consumed."""
+    device = "CON" if os.name == "nt" else "/dev/tty"
+    try:
+        with open(device, "r+", encoding="utf-8", errors="replace") as tty:
+            tty.write(prompt)
+            tty.flush()
+            return tty.readline()
+    except (OSError, ValueError):
+        return None
+
+
 def should_run(event: dict[str, Any]) -> bool:
     """Apply the gate, then the confirmation prompt. Both are opt-in."""
     risk = int(event.get("risk", 0))
@@ -162,54 +210,76 @@ def should_run(event: dict[str, Any]) -> bool:
               f"{ceiling} ({worst})", file=sys.stderr)
         return False
     if os.environ.get("PYXRAY_CONFIRM") == "1":
-        if not sys.stdin.isatty():
+        answer = _tty_prompt(f"pyxray: risk {risk}. Run it? [y/N] ")
+        if answer is None:
             print("pyxray: PYXRAY_CONFIRM needs a terminal; not running", file=sys.stderr)
-            return False
-        try:
-            answer = input(f"pyxray: risk {risk}. Run it? [y/N] ")
-        except (EOFError, KeyboardInterrupt):
-            print(file=sys.stderr)
             return False
         if answer.strip().lower() not in ("y", "yes"):
             return False
     return True
 
 
-def _source_for(argv: list[str]) -> tuple[str, str]:
-    """What a `python …` command line is actually going to run."""
+def _source_for(argv: list[str]) -> tuple[str, str, bool]:
+    """What a ``python …`` command line is actually going to run.
+
+    Returns ``(source, label, from_stdin)``. The interpreter's own options are
+    read the way CPython reads them — ``-X faulthandler script.py`` runs
+    ``script.py``, ``-uBc code`` runs ``code`` — by the same Rust code the
+    hook uses, so the two paths cannot disagree.
+    """
     args = argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "-c" and i + 1 < len(args):
-            return args[i + 1], "python -c"
-        if arg == "-":
-            return sys.stdin.read(), "<stdin>"
-        if arg in ("-m", "-W", "-X") and i + 1 < len(args):
-            continue
-        if not arg.startswith("-"):
-            try:
-                with open(arg, encoding="utf-8") as fh:
-                    return fh.read(), os.path.basename(arg)
-            except OSError:
-                return "", arg
-    if not sys.stdin.isatty():
-        return sys.stdin.read(), "<stdin>"
-    return "", "<repl>"
+    try:
+        inv = engine().classify_argv(args)
+    except Exception as exc:  # noqa: BLE001
+        _debug(f"could not classify argv: {exc}")
+        return "", "<unknown>", False
+    if inv.get("code") is not None:
+        return inv["code"], "python -c", False
+    if inv.get("module") is not None:
+        return "", f"python -m {inv['module']}", False
+    if inv.get("script"):
+        script = inv["script"]
+        try:
+            with open(script, encoding="utf-8", errors="replace") as fh:
+                return fh.read(), os.path.basename(script), False
+        except OSError:
+            return "", script, False
+    if inv.get("stdin"):
+        try:
+            if sys.stdin is None or sys.stdin.isatty():
+                return "", "<repl>", False
+        except (AttributeError, ValueError):
+            return "", "<repl>", False
+        return sys.stdin.read(), "<stdin>", True
+    return "", "<unknown>", False
+
+
+def _hand_over(argv: list[str]) -> int:
+    """Run the real command in our place."""
+    if os.name != "nt":
+        try:
+            os.execv(argv[0], argv)
+        except OSError as exc:
+            _debug(f"execv failed ({exc}); falling back to subprocess")
+    return subprocess.call(argv)
 
 
 def _run_wrapped(argv: list[str]) -> int:
-    source, name = _source_for(argv)
-    if not source or os.environ.get("PYXRAY_OFF") == "1":
-        return subprocess.call(argv)
+    if os.environ.get("PYXRAY_OFF") == "1":
+        return _hand_over(argv)
+    source, name, from_stdin = _source_for(argv)
+    if not source:
+        return _hand_over(argv)
     event = look(source, name, source="shim")
     if not should_run(event):
         return 3
-    # `-` and a bare interpreter both mean "the script is on stdin", which we
-    # have already consumed, so hand it back rather than re-reading it.
-    if "-" in argv[1:] or name == "<stdin>":
+    if from_stdin:
+        # The script came from stdin, which we have already consumed, so hand
+        # it back rather than re-reading it.
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, text=True)
         proc.communicate(source)
         return proc.returncode
-    return subprocess.call(argv)
+    return _hand_over(argv)
 
 
 #: Tool names, across harnesses, whose arguments carry Python directly.
@@ -217,90 +287,136 @@ def _run_wrapped(argv: list[str]) -> int:
 #: "terminal", and a matcher that cares about the capital B silently ignores
 #: every payload, which is the worst possible failure for an observer.
 CODE_TOOLS = {"execute_code", "python", "run_python", "ipython", "code_interpreter",
-              "python_tool", "jupyter", "notebookedit"}
+              "python_tool", "jupyter", "notebookedit", "python_repl", "execute_python"}
 #: Tool names whose arguments carry a shell command that might contain Python.
 SHELL_TOOLS = {"bash", "terminal", "shell", "run_command", "execute_command", "sh",
-               "bashtool", "run_terminal_cmd", "execute_bash", "shell_command"}
+               "bashtool", "run_terminal_cmd", "execute_bash", "shell_command",
+               "run_shell_command", "exec", "execute"}
+#: Tools that carry text that is not going to be run: file edits, searches.
+#: Analysing a file an agent is *writing* would be a different product.
+SKIP_TOOLS = {"write", "edit", "multiedit", "read", "glob", "grep", "ls", "webfetch",
+              "websearch", "todowrite", "task", "agent", "askuserquestion", "str_replace",
+              "create_file", "view", "search", "list_dir", "read_file", "write_file",
+              "edit_file", "apply_patch"}
 #: Argument keys to look in, in order of preference.
-CODE_KEYS = ("code", "source", "script", "python", "content")
+CODE_KEYS = ("code", "source", "python", "script")
 SHELL_KEYS = ("command", "cmd", "commandLine", "args")
+
+_PY_MARKERS = re.compile(
+    r"^\s*(?:import\s+[\w.]+|from\s+[\w.]+\s+import\b|(?:async\s+)?def\s+\w+\s*\(|class\s+\w+"
+    r"|(?:if|for|while|with|try|elif|except|else|finally)\b[^\n]*:\s*(?:#.*)?$"
+    r"|[\w.\[\]]+\s*(?:[-+*/%|&^]|//|\*\*|<<|>>)?=(?!=)[^\n]*$|print\s*\(|return\b|raise\b"
+    r"|@\w+|lambda\b|yield\b|await\b)",
+    re.MULTILINE,
+)
 
 
 def _looks_like_python(text: str) -> bool:
     """Cheap guard for tools we could not identify.
 
-    A tool we do not recognise might be handing us a shell command in a field
-    called `script`, and analysing that as Python would produce nonsense. The
-    parser recovers from anything, so this only has to be roughly right.
+    A tool we do not recognise might be handing us a shell command, a diff or a
+    paragraph of prose in a field called `script`, and analysing that as Python
+    would produce nonsense in the feed. This wants a real Python statement
+    somewhere in the text — a bare `=` or a newline is not evidence of
+    anything.
     """
     stripped = text.strip()
     if not stripped:
         return False
-    markers = ("import ", "from ", "def ", "class ", "print(", "=", "\n")
-    return any(marker in stripped for marker in markers)
+    return _PY_MARKERS.search(stripped) is not None
 
 
-def python_in_payload(payload: dict[str, Any]) -> tuple[str, str] | None:
-    """Find the Python inside a tool-call payload, whatever shape it arrived in.
+def python_in_payload(payload: dict[str, Any]) -> list[tuple[str, str]]:
+    """Every piece of Python inside a tool-call payload, whatever its shape.
 
     Handles both kinds of tool a harness might offer: one that takes Python
-    directly, and one that takes a shell command with Python wrapped inside it.
+    directly, and one that takes a shell command with Python wrapped inside it
+    — a script path (read relative to the payload's ``cwd``), a heredoc, a
+    ``-c`` one-liner, a pipe, a ``bash -c``. Returns ``(source, label)``
+    pairs in command order; an empty list means "nothing to look at".
     """
     tool = (payload.get("tool_name") or payload.get("tool") or "").strip()
     args = payload.get("tool_input") or payload.get("args") or payload.get("input") or {}
     if not isinstance(args, dict):
-        return None
+        return []
 
     key = tool.lower()
+    if key in SKIP_TOOLS:
+        return []
     takes_code = key in CODE_TOOLS
     takes_shell = key in SHELL_TOOLS
     # A tool we have never heard of gets both treatments rather than none:
     # being wrong about the shape costs a wasted parse, being silent costs the
-    # whole point of the hook.
+    # whole point of the hook. The guard is `_looks_like_python`.
     unknown = not (takes_code or takes_shell)
+
+    if key == "notebookedit":
+        # Only code cells are code. Claude Code's field is `new_source`.
+        if str(args.get("cell_type") or "code").lower() != "code":
+            return []
+        value = args.get("new_source") or args.get("source")
+        if isinstance(value, str) and value.strip():
+            return [(value, "notebook cell")]
+        return []
 
     if takes_code or unknown:
         for field in CODE_KEYS:
             value = args.get(field)
-            if isinstance(value, str) and value.strip() and _looks_like_python(value):
-                return value, tool or "code"
+            if isinstance(value, str) and value.strip():
+                if takes_code or _looks_like_python(value):
+                    return [(value, tool or "code")]
 
     if takes_shell or unknown:
-        for key in SHELL_KEYS:
-            value = args.get(key)
+        cwd = payload.get("cwd")
+        for field in SHELL_KEYS:
+            value = args.get(field)
             if isinstance(value, list):
                 value = " ".join(str(v) for v in value)
-            if isinstance(value, str) and value.strip():
-                code, label = extract_python(value)
-                if label != "<stdin>" and code.strip():
-                    return code, label
-    return None
+            if not (isinstance(value, str) and value.strip()):
+                continue
+            try:
+                found = engine().extract_all(value, cwd=str(cwd) if cwd else None)
+            except Exception as exc:  # noqa: BLE001
+                _debug(f"could not extract from {field!r}: {exc}")
+                found = []
+            items = [(f["source"], f["label"]) for f in found if f.get("source", "").strip()]
+            if items:
+                return items
+    return []
 
 
 def _run_hook() -> int:
     """A PreToolUse-shaped hook. Records; asks the harness to stop only if gated.
 
     The wire format is Claude Code's, which Hermes also accepts, so one script
-    serves both. Anything it does not recognise passes through untouched.
+    serves both. Anything it does not recognise passes through untouched, and
+    nothing that goes wrong in here can fail the tool call: the exit code is
+    0 whatever happens.
     """
     try:
         payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError, OSError):
+        return 0
+    if not isinstance(payload, dict):
         return 0
     found = python_in_payload(payload)
     if not found:
         return 0
-    code, label = found
 
     session = str(payload.get("session_id") or "")[:8]
     source = payload.get("hook_source") or os.environ.get("PYXRAY_SOURCE") or "hook"
-    event = look(code, label, source=f"{source}{':' + session if session else ''}")
+    origin = f"{source}{':' + session if session else ''}"
+    worst: dict[str, Any] | None = None
+    for code, label in found:
+        event = look(code, label, source=origin)
+        if worst is None or int(event.get("risk", 0)) > int(worst.get("risk", 0)):
+            worst = event
 
     ceiling = gate()
-    risk = int(event.get("risk", 0))
-    if ceiling is not None and risk > ceiling:
+    risk = int((worst or {}).get("risk", 0))
+    if ceiling is not None and risk > ceiling and worst is not None:
         reason = (f"pyxray: risk {risk} is over the gate of {ceiling} — "
-                  f"{event.get('synopsis', '')}")
+                  f"{worst.get('synopsis', '')}")
         json.dump({
             "decision": "block",
             "reason": reason,
@@ -310,13 +426,18 @@ def _run_hook() -> int:
                 "permissionDecisionReason": reason,
             },
         }, sys.stdout)
+        sys.stdout.flush()
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] == "--hook":
-        return _run_hook()
+        try:
+            return _run_hook()
+        except BaseException as exc:  # noqa: BLE001 — never fail the caller
+            _debug(f"hook failed: {exc!r}")
+            return 0
     if args and args[0] == "--":
         args = args[1:]
     if not args:

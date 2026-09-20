@@ -4,3 +4,9 @@ __pycache__/
 python/pyxray/_pyxray*.so
 /build/
 env.local.sh
+python/pyxray/_pyxray*.pyd
+python/pyxray/bin/
+*.dylib
+/dist/
+.pytest_cache/
+integrations/shim/python

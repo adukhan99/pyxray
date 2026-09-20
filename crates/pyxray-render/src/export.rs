@@ -101,31 +101,67 @@ fn indexed_rgb(i: u8) -> (u8, u8, u8) {
     }
 }
 
-fn hex(c: (u8, u8, u8)) -> String {
+pub fn hex(c: (u8, u8, u8)) -> String {
     format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2)
 }
 
 // ------------------------------------------------------------------ ansi ---
 
-fn sgr(style: Style, t: &Theme) -> String {
+/// The SGR code for one of the sixteen named colours: 30–37 / 90–97 for the
+/// foreground, +10 for the background. What a terminal that cannot do RGB
+/// understands, and what the `ansi` theme promises to stay within.
+fn named_sgr(c: Color, bg: bool) -> Option<u8> {
+    let base = match c {
+        Color::Black => 30,
+        Color::Red => 31,
+        Color::Green => 32,
+        Color::Yellow => 33,
+        Color::Blue => 34,
+        Color::Magenta => 35,
+        Color::Cyan => 36,
+        Color::Gray => 37,
+        Color::DarkGray => 90,
+        Color::LightRed => 91,
+        Color::LightGreen => 92,
+        Color::LightYellow => 93,
+        Color::LightBlue => 94,
+        Color::LightMagenta => 95,
+        Color::LightCyan => 96,
+        Color::White => 97,
+        _ => return None,
+    };
+    Some(if bg { base + 10 } else { base })
+}
+
+/// The escape sequence that selects `style`, resetting first. Honours the
+/// theme's `truecolor` flag: a 16-colour theme emits the classic 3x/9x codes
+/// rather than resolving its names to RGB, so it really does survive a
+/// terminal, a multiplexer or a log file that cannot do 24-bit colour.
+pub fn sgr(style: Style, t: &Theme) -> String {
     let mut parts: Vec<String> = vec!["0".into()];
     match style.fg {
         Some(Color::Reset) | None => {}
         Some(Color::Rgb(r, g, b)) => parts.push(format!("38;2;{r};{g};{b}")),
         Some(Color::Indexed(i)) => parts.push(format!("38;5;{i}")),
-        Some(named) => {
-            let (r, g, b) = to_rgb(named, t, false);
-            parts.push(format!("38;2;{r};{g};{b}"));
-        }
+        Some(named) => match (t.truecolor, named_sgr(named, false)) {
+            (false, Some(code)) => parts.push(code.to_string()),
+            _ => {
+                let (r, g, b) = to_rgb(named, t, false);
+                parts.push(format!("38;2;{r};{g};{b}"));
+            }
+        },
     }
     match style.bg {
         Some(Color::Reset) | None => {}
         Some(Color::Rgb(r, g, b)) => parts.push(format!("48;2;{r};{g};{b}")),
         Some(Color::Indexed(i)) => parts.push(format!("48;5;{i}")),
-        Some(named) => {
-            let (r, g, b) = to_rgb(named, t, true);
-            parts.push(format!("48;2;{r};{g};{b}"));
-        }
+        Some(named) => match (t.truecolor, named_sgr(named, true)) {
+            (false, Some(code)) => parts.push(code.to_string()),
+            _ => {
+                let (r, g, b) = to_rgb(named, t, true);
+                parts.push(format!("48;2;{r};{g};{b}"));
+            }
+        },
     }
     let m = style.add_modifier;
     if m.contains(Modifier::BOLD) {
@@ -191,6 +227,13 @@ pub fn to_text(buf: &Buffer) -> String {
 }
 
 // ------------------------------------------------------------------ html ---
+
+/// `s` with the five HTML/XML metacharacters escaped.
+pub fn escaped(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    escape(s, &mut out);
+    out
+}
 
 fn escape(s: &str, out: &mut String) {
     for ch in s.chars() {
@@ -279,6 +322,7 @@ pub fn to_html_fragment(buf: &Buffer, t: &Theme) -> String {
 pub fn to_html(buf: &Buffer, t: &Theme, title: &str) -> String {
     let bg = hex(to_rgb(t.pal.bg, t, true));
     let fragment = to_html_fragment(buf, t);
+    let title = escaped(title);
     format!(
         "<!doctype html>\n<html><head><meta charset=\"utf-8\">\n<title>{title}</title>\n\
 <style>\n  body {{ margin:0; padding:24px; background:{bg}; }}\n\
@@ -307,7 +351,7 @@ pub fn to_svg(buf: &Buffer, t: &Theme, title: &str) -> String {
 width=\"{w:.0}\" height=\"{h:.0}\" font-family=\"JetBrains Mono, Fira Code, SF Mono, \
 DejaVu Sans Mono, ui-monospace, monospace\" font-size=\"13\">\n"
     ));
-    out.push_str(&format!("<title>{title}</title>\n"));
+    out.push_str(&format!("<title>{}</title>\n", escaped(title)));
     out.push_str(&format!(
         "<rect width=\"100%\" height=\"100%\" fill=\"{bg}\" rx=\"6\"/>\n"
     ));

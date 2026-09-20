@@ -4,12 +4,30 @@
 //! the schema is already defined once by serde in `pyxray-core`, and keeping
 //! one definition beats keeping two in step.
 
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyxray_render::export::{self, Format};
 use pyxray_render::layout::{self, Layout};
 use pyxray_render::panels::{Icons, Opts};
 use pyxray_render::theme::{self, THEMES};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+
+/// Run a binding body with a panic fence. `xray_guarded` already contains the
+/// analyser; this catches anything in rendering or serialisation, so the host
+/// interpreter — the agent's own process — gets an exception, never an abort.
+fn fenced<T>(what: &str, body: impl FnOnce() -> PyResult<T>) -> PyResult<T> {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(result) => result,
+        Err(payload) => {
+            let why = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "internal error".to_string());
+            Err(PyRuntimeError::new_err(format!("pyxray: {what}: {why}")))
+        }
+    }
+}
 
 fn pick_theme(id: &str) -> PyResult<theme::Theme> {
     theme::theme(id).ok_or_else(|| PyValueError::new_err(format!("unknown theme {id:?}")))
@@ -38,8 +56,10 @@ fn pick_icons(id: &str) -> PyResult<Icons> {
 #[pyfunction]
 #[pyo3(signature = (source, name = "<stdin>"))]
 fn analyze_json(source: &str, name: &str) -> PyResult<String> {
-    let report = pyxray_core::xray(source, name);
-    serde_json::to_string(&report).map_err(|e| PyValueError::new_err(e.to_string()))
+    fenced("analyze", || {
+        let report = pyxray_core::xray_guarded(source, name);
+        serde_json::to_string(&report).map_err(|e| PyValueError::new_err(e.to_string()))
+    })
 }
 
 /// Render `source` to a string in the requested format.
@@ -71,24 +91,26 @@ fn render(
     gutter: bool,
     code: bool,
 ) -> PyResult<String> {
-    let report = pyxray_core::xray(source, name);
-    let style = pyxray_render::Style {
-        theme: pick_theme(theme)?,
-        layout: pick_layout(layout)?,
-        opts: Opts {
-            max_depth: depth,
-            gutter,
-            icons: pick_icons(icons)?,
-            code,
-        },
-    };
-    Ok(pyxray_render::render_to_string(
-        &report,
-        &style,
-        pick_format(format)?,
-        width,
-        height,
-    ))
+    fenced("render", || {
+        let report = pyxray_core::xray_guarded(source, name);
+        let style = pyxray_render::Style {
+            theme: pick_theme(theme)?,
+            layout: pick_layout(layout)?,
+            opts: Opts {
+                max_depth: depth,
+                gutter,
+                icons: pick_icons(icons)?,
+                code,
+            },
+        };
+        Ok(pyxray_render::render_to_string(
+            &report,
+            &style,
+            pick_format(format)?,
+            width,
+            height,
+        ))
+    })
 }
 
 /// The interceptor's hot path: analyse once, append the feed event, and
@@ -125,30 +147,40 @@ fn look(
     width: u16,
     icons: &str,
 ) -> PyResult<(String, String)> {
-    let report = pyxray_core::xray(code, name);
-    let event = report.event(source);
-    let target = path
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(pyxray_core::feed::default_path);
-    // A feed we cannot write is not worth failing the caller's command over —
-    // the interceptor is in front of somebody else's work.
-    let _ = pyxray_core::feed::append(&target, &event);
+    fenced("look", || {
+        let report = pyxray_core::xray_guarded(code, name);
+        let event = report.event(source);
+        let target = path
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(pyxray_core::feed::default_path);
+        // A feed we cannot write is not worth failing the caller's command
+        // over — the interceptor is in front of somebody else's work. But it
+        // is worth telling the caller, so `PYXRAY_DEBUG` can surface it.
+        let feed_error = pyxray_core::feed::append(&target, &event)
+            .err()
+            .map(|e| format!("{}: {e}", target.display()));
 
-    let json = serde_json::to_string(&event).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    if !draw {
-        return Ok((json, String::new()));
-    }
-    let style = pyxray_render::Style {
-        theme: pick_theme(theme)?,
-        layout: pick_layout(layout)?,
-        opts: Opts {
-            icons: pick_icons(icons)?,
-            ..Opts::default()
-        },
-    };
-    let rendered =
-        pyxray_render::render_to_string(&report, &style, pick_format(format)?, width, None);
-    Ok((json, rendered))
+        let mut value =
+            serde_json::to_value(&event).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if let Some(err) = feed_error {
+            value["feed_error"] = serde_json::Value::String(err);
+        }
+        let json = value.to_string();
+        if !draw {
+            return Ok((json, String::new()));
+        }
+        let style = pyxray_render::Style {
+            theme: pick_theme(theme)?,
+            layout: pick_layout(layout)?,
+            opts: Opts {
+                icons: pick_icons(icons)?,
+                ..Opts::default()
+            },
+        };
+        let rendered =
+            pyxray_render::render_to_string(&report, &style, pick_format(format)?, width, None);
+        Ok((json, rendered))
+    })
 }
 
 /// Where the feed log lives, resolved the same way the binary resolves it.
@@ -169,11 +201,39 @@ fn read_feed(path: Option<&str>) -> PyResult<String> {
     serde_json::to_string(&events).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-/// Pull the Python out of a shell command: `python3 <<'EOF' … EOF`,
-/// `python -c '…'`, or a bare script. Returns `(source, label)`.
+/// Pull the first piece of Python out of a shell command, or return the
+/// command itself when it is not recognisably a wrapped snippet. Returns
+/// `(source, label)`. See `extract_all` for everything.
 #[pyfunction]
 fn extract(command: &str) -> (String, String) {
     pyxray_core::extract_python(command)
+}
+
+/// Every piece of Python a shell command would run, as a JSON array of
+/// `{source, label, path, segment}` — heredocs, `-c`, script files (read
+/// relative to `cwd`), pipes, `bash -c`, in command order.
+#[pyfunction]
+#[pyo3(signature = (command, cwd = None, read_files = true))]
+fn extract_all(command: &str, cwd: Option<&str>, read_files: bool) -> PyResult<String> {
+    fenced("extract", || {
+        let opts = pyxray_core::ExtractOpts {
+            cwd: cwd.map(std::path::PathBuf::from),
+            read_files,
+            ..pyxray_core::ExtractOpts::default()
+        };
+        let found = pyxray_core::extract_all(command, &opts);
+        serde_json::to_string(&found).map_err(|e| PyValueError::new_err(e.to_string()))
+    })
+}
+
+/// Read an interpreter's own argument list the way CPython does. Returns
+/// JSON `{code, module, script, stdin}`.
+#[pyfunction]
+fn classify_argv(args: Vec<String>) -> PyResult<String> {
+    fenced("classify_argv", || {
+        let inv = pyxray_core::extract::classify_argv(&args);
+        serde_json::to_string(&inv).map_err(|e| PyValueError::new_err(e.to_string()))
+    })
 }
 
 /// The available themes, as `(id, name, blurb)` triples.
@@ -200,6 +260,9 @@ fn _pyxray(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(analyze_json, m)?)?;
     m.add_function(wrap_pyfunction!(render, m)?)?;
     m.add_function(wrap_pyfunction!(extract, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_all, m)?)?;
+    m.add_function(wrap_pyfunction!(classify_argv, m)?)?;
+    m.add("SCHEMA", pyxray_core::SCHEMA)?;
     m.add_function(wrap_pyfunction!(look, m)?)?;
     m.add_function(wrap_pyfunction!(feed_path, m)?)?;
     m.add_function(wrap_pyfunction!(read_feed, m)?)?;

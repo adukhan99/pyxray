@@ -1,0 +1,232 @@
+---
+source: crates/pyxray-core/tests/snapshots.rs
+expression: report
+---
+{
+  "schema": 1,
+  "meta": {
+    "name": "agent-minute_04-version.py",
+    "bytes": 116,
+    "parsed": true,
+    "synopsis": "makes 2 network calls → prints results",
+    "headline": [
+      "makes 2 network calls",
+      "prints results"
+    ]
+  },
+  "spine": {
+    "id": 0,
+    "kind": "module",
+    "label": "agent-minute_04-version.py",
+    "detail": null,
+    "line": 1,
+    "end_line": 4,
+    "depth": 0,
+    "own_effects": 0,
+    "effects": 136,
+    "severity": "notable",
+    "weight": 4,
+    "children": [
+      {
+        "id": 1,
+        "kind": "import",
+        "label": "import requests",
+        "detail": null,
+        "line": 1,
+        "end_line": 1,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 2,
+        "kind": "assign",
+        "label": "r = requests.get(\"https://pypi.org/pypi/numpy/json\", timeout=5)",
+        "detail": null,
+        "line": 3,
+        "end_line": 3,
+        "depth": 0,
+        "own_effects": 8,
+        "effects": 8,
+        "severity": "notable",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 3,
+        "kind": "call",
+        "label": "print(r.json()[\"info\"][\"version\"])",
+        "detail": null,
+        "line": 4,
+        "end_line": 4,
+        "depth": 0,
+        "own_effects": 136,
+        "effects": 136,
+        "severity": "info",
+        "weight": 1,
+        "children": []
+      }
+    ]
+  },
+  "imports": [
+    {
+      "module": "requests",
+      "names": [],
+      "alias": null,
+      "line": 1,
+      "third_party": true,
+      "deferred": false
+    }
+  ],
+  "effects": [
+    {
+      "effect": "net",
+      "severity": "notable",
+      "verb": "GET",
+      "symbol": "requests.get",
+      "target": "https://pypi.org/pypi/numpy/json",
+      "line": 3,
+      "col": 5,
+      "snippet": "requests.get(\"https://pypi.org/pypi/numpy/json\", timeout=5)",
+      "note": null
+    },
+    {
+      "effect": "stdout",
+      "severity": "info",
+      "verb": "print",
+      "symbol": "print",
+      "target": "r.json()[\"info\"][\"version\"]",
+      "line": 4,
+      "col": 1,
+      "snippet": "print(r.json()[\"info\"][\"version\"])",
+      "note": null
+    },
+    {
+      "effect": "net",
+      "severity": "info",
+      "verb": "body",
+      "symbol": "<response>.json",
+      "target": "requests.get(\"https://pypi.org/py…\", …1)",
+      "line": 4,
+      "col": 7,
+      "snippet": "r.json()",
+      "note": null
+    }
+  ],
+  "symbols": [
+    {
+      "canonical": "print",
+      "display": "print",
+      "group": "<builtins>",
+      "origin": "builtin",
+      "count": 1,
+      "lines": [
+        4
+      ],
+      "effects": 128
+    },
+    {
+      "canonical": "requests.get",
+      "display": "requests.get",
+      "group": "requests",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        3
+      ],
+      "effects": 8
+    },
+    {
+      "canonical": "<response>.json",
+      "display": "r.json",
+      "group": "response",
+      "origin": "method",
+      "count": 1,
+      "lines": [
+        4
+      ],
+      "effects": 8
+    }
+  ],
+  "bindings": [
+    {
+      "name": "r",
+      "kind": "assign",
+      "value": "response",
+      "origin": "requests.get(\"https://pypi.org/py…\", …1)",
+      "scope": "<module>",
+      "line": 3,
+      "depth": 0,
+      "reads": 1,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    }
+  ],
+  "metrics": {
+    "lines_total": 4,
+    "lines_code": 3,
+    "lines_comment": 0,
+    "lines_blank": 1,
+    "statements": 3,
+    "max_depth": 0,
+    "complexity": 1,
+    "functions": 0,
+    "classes": 0,
+    "async_defs": 0,
+    "calls": 3,
+    "imports": 1,
+    "loops": 0,
+    "branches": 0,
+    "handlers": 0,
+    "risk": 12
+  },
+  "texture": [
+    {
+      "indent": 0,
+      "width": 15,
+      "blank": false,
+      "comment": false,
+      "kind": "import",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 0,
+      "blank": true,
+      "comment": false,
+      "kind": null,
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 63,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 8,
+      "severity": "notable"
+    },
+    {
+      "indent": 0,
+      "width": 34,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 136,
+      "severity": "info"
+    }
+  ],
+  "diagnostics": [],
+  "source": [
+    "import requests",
+    "",
+    "r = requests.get(\"https://pypi.org/pypi/numpy/json\", timeout=5)",
+    "print(r.json()[\"info\"][\"version\"])"
+  ]
+}

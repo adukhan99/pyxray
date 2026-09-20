@@ -12,14 +12,15 @@ integrations/opencode/install.sh --project   # this project only
 pyx watch                                    # in another pane
 ```
 
-The installer bakes the absolute path to `integrations/pyxray-hook` into the
+The installer bakes the absolute path to `integrations/claude-code/hooks/pyxray-hook` into the
 copied plugin, since a plugin in `~/.config` cannot find the checkout on its
 own. `PYXRAY_HOOK` overrides it at runtime.
 
 ## What it does
 
 Every `bash` command is checked for Python — a heredoc, a `-c` one-liner, a
-script path — and recorded to the feed. Nothing is drawn into the OpenCode
+script path (read relative to the working directory), a `bash -c`, a pipe —
+and each piece is recorded to the feed. Nothing is drawn into the OpenCode
 session: at agent speed that would be unreadable, and OpenCode shows tool
 output to the model. Watch `pyx watch` instead.
 
@@ -36,8 +37,8 @@ Unset, which is the default, it never throws.
 
 ## Failure behaviour
 
-If the hook cannot be spawned, or exits non-zero, or returns something that is
-not JSON, the plugin stands down for the rest of the session rather than
-failing on every command. An observer that breaks the agent's work is worse
+If the hook cannot be spawned or exits non-zero three times in a row, the
+plugin stands down for the rest of the session rather than failing on every
+command; output that is not JSON is ignored. An observer that breaks the agent's work is worse
 than no observer, and OpenCode would surface a throwing hook as a tool error
 on every single call.

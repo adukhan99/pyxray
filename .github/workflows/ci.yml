@@ -1,0 +1,100 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master, hardening]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      - name: build the binary
+        run: cargo build --release -p pyx-cli
+      - name: smoke
+        shell: bash
+        run: |
+          ./target/release/pyx --check 40 examples/sketchy.py -w 100 && exit 1 || test $? -eq 3
+          ! NO_COLOR=1 CLICOLOR_FORCE=1 ./target/release/pyx --color auto -l line examples/tiny.py | grep -q $'\e' || true
+          ! ./target/release/pyx --color never -l line examples/tiny.py | grep -q $'\e'
+          ./target/release/pyx --color always -l line examples/tiny.py | grep -q $'\e'
+          ./target/release/pyx -t mono -l card -w 100 examples/sketchy.py | LC_ALL=C grep -q '[^ -~]' && exit 1 || true
+          echo 'cd examples && python3 tiny.py' | ./target/release/pyx extract --cwd . | grep -q '"label":"tiny.py"'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pyx-${{ matrix.os }}
+          path: target/release/pyx${{ runner.os == 'Windows' && '.exe' || '' }}
+
+  python:
+    name: python ${{ matrix.python }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: rust
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.9" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: macos-latest, python: "3.12" }
+          - { os: windows-latest, python: "3.12" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96"
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --upgrade pip maturin pytest fastapi httpx
+      - name: build the extension into the active Python
+        run: maturin develop --release
+      - name: build the binary (for the fallback backend)
+        run: cargo build --release -p pyx-cli
+      - name: pytest, extension backend
+        run: python -m pytest python/tests -q
+      - name: pytest, binary backend
+        shell: bash
+        env:
+          PYXRAY_FORCE_BINARY: "1"
+        run: |
+          export PYXRAY_BIN="$PWD/target/release/pyx$([ '${{ runner.os }}' = Windows ] && echo .exe)"
+          python -m pytest python/tests -q
+
+  shell:
+    name: shell + contrast
+    runs-on: ubuntu-latest
+    needs: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96"
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
+      - run: cargo build -p pyx-cli
+      - run: make shellcheck
+      - run: make audit
+      - name: the PATH shim, end to end
+        run: PYXRAY_BIN=$PWD/target/debug/pyx bats tests/shim.bats

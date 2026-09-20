@@ -169,11 +169,11 @@ pub fn frame(buf: &mut Buffer, area: Rect, theme: &Theme, title: &str) -> Rect {
             let corner = |buf: &mut Buffer, x: u16, y: u16, s: &str| {
                 text(buf, x, y, 2, s, rs);
             };
-            corner(buf, area.x, area.y, "\u{250c}");
-            corner(buf, area.x + w - 1, area.y, "\u{2510}");
+            corner(buf, area.x, area.y, &g.tl.to_string());
+            corner(buf, area.x + w - 1, area.y, &g.tr.to_string());
             if h >= 2 {
-                corner(buf, area.x, area.y + h - 1, "\u{2514}");
-                corner(buf, area.x + w - 1, area.y + h - 1, "\u{2518}");
+                corner(buf, area.x, area.y + h - 1, &g.bl.to_string());
+                corner(buf, area.x + w - 1, area.y + h - 1, &g.br.to_string());
             }
             if !head.is_empty() {
                 text(buf, area.x + 2, area.y, w.saturating_sub(4), &head, ts);
@@ -281,12 +281,8 @@ pub fn meter(
         return;
     }
     let filled = (frac.clamp(0.0, 1.0) * w as f32).round() as u16;
-    let full = theme.gl.ramp[theme.gl.ramp.len() - 1];
-    let track = if theme.gl.ramp[0] == '\u{00b7}' {
-        '\u{2591}'
-    } else {
-        theme.gl.ramp[0]
-    };
+    let full = theme.gl.block;
+    let track = theme.gl.track;
     for i in 0..w {
         let (ch, st) = if i < filled { (full, on) } else { (track, off) };
         text(buf, x + i, y, 1, &ch.to_string(), st);

@@ -1,0 +1,293 @@
+---
+source: crates/pyxray-core/tests/snapshots.rs
+expression: report
+---
+{
+  "schema": 1,
+  "meta": {
+    "name": "agent-minute_05-report.py",
+    "bytes": 172,
+    "parsed": true,
+    "synopsis": "writes 2 files → prints results",
+    "headline": [
+      "writes 2 files",
+      "prints results"
+    ]
+  },
+  "spine": {
+    "id": 0,
+    "kind": "module",
+    "label": "agent-minute_05-report.py",
+    "detail": null,
+    "line": 1,
+    "end_line": 6,
+    "depth": 0,
+    "own_effects": 0,
+    "effects": 130,
+    "severity": "notable",
+    "weight": 6,
+    "children": [
+      {
+        "id": 1,
+        "kind": "import",
+        "label": "from pathlib import Path",
+        "detail": null,
+        "line": 1,
+        "end_line": 1,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 2,
+        "kind": "assign",
+        "label": "out = Path(\"out\")",
+        "detail": null,
+        "line": 3,
+        "end_line": 3,
+        "depth": 0,
+        "own_effects": 0,
+        "effects": 0,
+        "severity": null,
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 3,
+        "kind": "call",
+        "label": "out.mkdir(exist_ok=True)",
+        "detail": null,
+        "line": 4,
+        "end_line": 4,
+        "depth": 0,
+        "own_effects": 2,
+        "effects": 2,
+        "severity": "info",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 4,
+        "kind": "call",
+        "label": "out / \"report.md\".write_text(\"# Results All runs complete…\")",
+        "detail": null,
+        "line": 5,
+        "end_line": 5,
+        "depth": 0,
+        "own_effects": 2,
+        "effects": 2,
+        "severity": "notable",
+        "weight": 1,
+        "children": []
+      },
+      {
+        "id": 5,
+        "kind": "call",
+        "label": "print(\"wrote\", out / \"report.md\")",
+        "detail": null,
+        "line": 6,
+        "end_line": 6,
+        "depth": 0,
+        "own_effects": 128,
+        "effects": 128,
+        "severity": "info",
+        "weight": 1,
+        "children": []
+      }
+    ]
+  },
+  "imports": [
+    {
+      "module": "pathlib",
+      "names": [
+        "Path"
+      ],
+      "alias": null,
+      "line": 1,
+      "third_party": false,
+      "deferred": false
+    }
+  ],
+  "effects": [
+    {
+      "effect": "fs_write",
+      "severity": "info",
+      "verb": "mkdir",
+      "symbol": "<path>.mkdir",
+      "target": "Path(\"out\")",
+      "line": 4,
+      "col": 1,
+      "snippet": "out.mkdir(exist_ok=True)",
+      "note": null
+    },
+    {
+      "effect": "fs_write",
+      "severity": "notable",
+      "verb": "write",
+      "symbol": "<path>.write_text",
+      "target": "out / \"report.md\"",
+      "line": 5,
+      "col": 1,
+      "snippet": "(out / \"report.md\").write_text(\"# Results\\n\\nAll runs completed.\\n\")",
+      "note": null
+    },
+    {
+      "effect": "stdout",
+      "severity": "info",
+      "verb": "print",
+      "symbol": "print",
+      "target": "wrote",
+      "line": 6,
+      "col": 1,
+      "snippet": "print(\"wrote\", out / \"report.md\")",
+      "note": null
+    }
+  ],
+  "symbols": [
+    {
+      "canonical": "print",
+      "display": "print",
+      "group": "<builtins>",
+      "origin": "builtin",
+      "count": 1,
+      "lines": [
+        6
+      ],
+      "effects": 128
+    },
+    {
+      "canonical": "<path>.mkdir",
+      "display": "out.mkdir",
+      "group": "path",
+      "origin": "method",
+      "count": 1,
+      "lines": [
+        4
+      ],
+      "effects": 2
+    },
+    {
+      "canonical": "<path>.write_text",
+      "display": "(out / \"report.md\").write_text",
+      "group": "path",
+      "origin": "method",
+      "count": 1,
+      "lines": [
+        5
+      ],
+      "effects": 2
+    },
+    {
+      "canonical": "pathlib.Path",
+      "display": "Path",
+      "group": "pathlib",
+      "origin": "import",
+      "count": 1,
+      "lines": [
+        3
+      ],
+      "effects": 0
+    }
+  ],
+  "bindings": [
+    {
+      "name": "out",
+      "kind": "assign",
+      "value": "path",
+      "origin": "Path(\"out\")",
+      "scope": "<module>",
+      "line": 3,
+      "depth": 0,
+      "reads": 3,
+      "rebinds": 0,
+      "accumulates": false,
+      "dead": false
+    }
+  ],
+  "metrics": {
+    "lines_total": 6,
+    "lines_code": 5,
+    "lines_comment": 0,
+    "lines_blank": 1,
+    "statements": 5,
+    "max_depth": 0,
+    "complexity": 1,
+    "functions": 0,
+    "classes": 0,
+    "async_defs": 0,
+    "calls": 4,
+    "imports": 1,
+    "loops": 0,
+    "branches": 0,
+    "handlers": 0,
+    "risk": 12
+  },
+  "texture": [
+    {
+      "indent": 0,
+      "width": 24,
+      "blank": false,
+      "comment": false,
+      "kind": "import",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 0,
+      "blank": true,
+      "comment": false,
+      "kind": null,
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 17,
+      "blank": false,
+      "comment": false,
+      "kind": "assign",
+      "effects": 0,
+      "severity": null
+    },
+    {
+      "indent": 0,
+      "width": 24,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 2,
+      "severity": "info"
+    },
+    {
+      "indent": 0,
+      "width": 68,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 2,
+      "severity": "notable"
+    },
+    {
+      "indent": 0,
+      "width": 33,
+      "blank": false,
+      "comment": false,
+      "kind": "call",
+      "effects": 128,
+      "severity": "info"
+    }
+  ],
+  "diagnostics": [],
+  "source": [
+    "from pathlib import Path",
+    "",
+    "out = Path(\"out\")",
+    "out.mkdir(exist_ok=True)",
+    "(out / \"report.md\").write_text(\"# Results\\n\\nAll runs completed.\\n\")",
+    "print(\"wrote\", out / \"report.md\")"
+  ]
+}

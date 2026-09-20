@@ -1,0 +1,9 @@
+{
+  "name": "pyxray",
+  "label": "pyxray",
+  "description": "What the Python Hermes ran was going to do — live feed and cards for the desktop pane.",
+  "version": "0.2.0",
+  "icon": "ScanSearch",
+  "api": "plugin_api.py",
+  "tab": { "hidden": true }
+}
