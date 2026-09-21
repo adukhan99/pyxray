@@ -35,7 +35,10 @@ jobs:
       - name: smoke
         shell: bash
         run: |
-          bin=./target/release/pyx$([ '${{ runner.os }}' = Windows ] && echo .exe)
+          bin=./target/release/pyx
+          if [ -f "$bin.exe" ]; then
+            bin="$bin.exe"
+          fi
           "$bin" --check 40 examples/sketchy.py -w 100 && exit 1 || test $? -eq 3
           ! NO_COLOR=1 CLICOLOR_FORCE=1 "$bin" --color auto -l line examples/tiny.py | grep -q $'\e' || true
           ! "$bin" --color never -l line examples/tiny.py | grep -q $'\e'
