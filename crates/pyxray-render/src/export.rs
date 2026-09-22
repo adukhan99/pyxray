@@ -186,25 +186,54 @@ fn same(a: &Style, b: &Style) -> bool {
     a.fg == b.fg && a.bg == b.bg && a.add_modifier == b.add_modifier
 }
 
+/// One row of cells, styled, with no line ending of any kind.
+fn ansi_row(out: &mut String, buf: &Buffer, y: u16, t: &Theme) {
+    let mut last: Option<Style> = None;
+    for x in 0..buf.area.width {
+        let cell = &buf[(x, y)];
+        if cell.symbol().is_empty() {
+            continue;
+        }
+        let style = cell.style();
+        if last.as_ref().map(|l| !same(l, &style)).unwrap_or(true) {
+            out.push_str(&sgr(style, t));
+            last = Some(style);
+        }
+        out.push_str(cell.symbol());
+    }
+}
+
+/// The buffer as newline-separated lines: for a file, a pipe, or a terminal
+/// that is still in cooked mode. Use [`to_ansi_screen`] to paint a terminal
+/// that is in raw mode.
 pub fn to_ansi(buf: &Buffer, t: &Theme) -> String {
     let mut out = String::with_capacity(buf.area.area() as usize * 4);
-    let mut last: Option<Style> = None;
     for y in 0..buf.area.height {
-        for x in 0..buf.area.width {
-            let cell = &buf[(x, y)];
-            if cell.symbol().is_empty() {
-                continue;
-            }
-            let style = cell.style();
-            if last.as_ref().map(|l| !same(l, &style)).unwrap_or(true) {
-                out.push_str(&sgr(style, t));
-                last = Some(style);
-            }
-            out.push_str(cell.symbol());
-        }
+        ansi_row(&mut out, buf, y, t);
         out.push_str("\x1b[0m");
-        last = None;
         out.push('\n');
+    }
+    out
+}
+
+/// The buffer as a frame painted onto a raw-mode terminal, starting at screen
+/// row `top` (1-based) and column 1.
+///
+/// Every row is positioned absolutely instead of being reached with a newline.
+/// Raw mode turns off `ONLCR`, so a bare `\n` is a line feed and nothing else:
+/// it drops a row but keeps the column, which walks a full-width frame off the
+/// right edge one row at a time. The trailing newline after the bottom row is
+/// worse still — it scrolls the whole screen up. Positioning each row sidesteps
+/// both, and the erase-to-end-of-line keeps a narrow row from leaving the
+/// previous frame's tail behind it.
+pub fn to_ansi_screen(buf: &Buffer, t: &Theme, top: u16) -> String {
+    let mut out = String::with_capacity(buf.area.area() as usize * 4);
+    for y in 0..buf.area.height {
+        out.push_str(&format!("\x1b[{};1H", top.saturating_add(y)));
+        ansi_row(&mut out, buf, y, t);
+        // Erase first, so a terminal with background-colour erase clears in
+        // the row's own colours rather than the default ground.
+        out.push_str("\x1b[K\x1b[0m");
     }
     out
 }

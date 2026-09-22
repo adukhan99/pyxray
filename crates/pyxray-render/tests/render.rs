@@ -265,3 +265,52 @@ fn a_syntax_error_is_reported_once() {
     assert!(text.to_lowercase().contains("expected"), "{text}");
     assert!(text.matches("analysis is partial").count() <= 1, "{text}");
 }
+
+/// The screen exporter is what the interactive views paint through, and a raw
+/// terminal is unforgiving about how a frame gets from one row to the next.
+/// Raw mode clears `ONLCR`, so a newline is a bare line feed that keeps the
+/// column: a frame joined by newlines staircases off the right edge, and the
+/// one after the bottom row scrolls the screen. `pyx watch` showed exactly
+/// that — an honest count in the status bar over a blank body.
+#[test]
+fn the_screen_exporter_positions_rows_instead_of_using_newlines() {
+    for (label, source) in SAMPLES {
+        let report = xray(source, label);
+        for theme in THEMES {
+            let opts = Opts {
+                icons: Icons::Both,
+                ..Opts::default()
+            };
+            let buf = layout::render(&report, theme, &opts, Layout::Auto, 80, Some(24));
+            let frame = export::to_ansi_screen(&buf, theme, 1);
+            assert!(
+                !frame.contains('\n'),
+                "{label}/{}: frame carries a newline",
+                theme.id
+            );
+            assert!(
+                !frame.contains('\r'),
+                "{label}/{}: frame carries a carriage return",
+                theme.id
+            );
+            // Every row says where it goes, and the first one goes home.
+            assert!(frame.starts_with("\x1b[1;1H"), "{label}/{}", theme.id);
+            for y in 0..buf.area.height {
+                let at = format!("\x1b[{};1H", y + 1);
+                assert!(frame.contains(&at), "{label}/{}: missing {at:?}", theme.id);
+            }
+        }
+    }
+}
+
+/// The plain exporter still ends every line, because a file and a pipe want
+/// exactly what the screen exporter must not emit.
+#[test]
+fn the_plain_ansi_exporter_still_writes_lines() {
+    let report = xray("print(1)\n", "tiny");
+    let theme = &THEMES[0];
+    let buf = layout::render(&report, theme, &Opts::default(), Layout::Line, 80, Some(6));
+    let text = export::to_ansi(&buf, theme);
+    assert_eq!(text.matches('\n').count(), buf.area.height as usize);
+    assert!(!text.contains("\x1b[1;1H"));
+}

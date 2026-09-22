@@ -169,9 +169,13 @@ fn draw(out: &mut Stdout, report: &Report, state: &State) -> io::Result<()> {
     let top = state.scroll.min(max_scroll);
 
     let mut screen = String::with_capacity((w as usize) * (h as usize) * 4);
-    screen.push_str("\x1b[H");
     let window = crop(&buf, top, body_h);
-    screen.push_str(&export::to_ansi(&window, &theme));
+    screen.push_str(&export::to_ansi_screen(&window, &theme, 1));
+    // A render shorter than the body leaves the rows under it holding the
+    // previous layout; wipe them rather than let two renders overlap.
+    if window.area.height < body_h {
+        screen.push_str(&format!("\x1b[{};1H\x1b[J", window.area.height + 1));
+    }
 
     // Status line, in the theme's own colours so it never fights the render —
     // and through the same SGR path, so a 16-colour theme stays 16-colour.
@@ -191,16 +195,16 @@ fn draw(out: &mut Stdout, report: &Report, state: &State) -> io::Result<()> {
     } else {
         String::new()
     };
-    let used = pyxray_render::canvas::width(&left)
-        + pyxray_render::canvas::width(&right)
-        + pyxray_render::canvas::width(&state.status)
-        + 3;
-    let pad = (w as usize).saturating_sub(used as usize);
+    // The bar has to end inside the last column: one character over and it
+    // wraps onto a new row, which on the bottom row scrolls the whole render.
+    let fixed = pyxray_render::canvas::width(&left) + pyxray_render::canvas::width(&right) + 2;
+    let status =
+        pyxray_render::canvas::fit(&state.status, w.saturating_sub(fixed), theme.gl.ellipsis);
+    let pad = (w as usize).saturating_sub((fixed + pyxray_render::canvas::width(&status)) as usize);
     screen.push_str(&format!(
-        "\x1b[{};1H{}{left}\x1b[2m {} \x1b[22m{}{right}\x1b[0m",
+        "\x1b[{};1H{}{left}\x1b[2m {status} \x1b[22m{}{right}\x1b[0m",
         h,
         export::sgr(bar, &theme),
-        state.status,
         " ".repeat(pad)
     ));
     out.write_all(screen.as_bytes())?;

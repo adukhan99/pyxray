@@ -193,15 +193,42 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn draw(out: &mut Stdout, state: &State, o: &Options) -> io::Result<()> {
+fn draw(out: &mut Stdout, state: &mut State, o: &Options) -> io::Result<()> {
     let (w, h) = terminal::size()?;
+    // Scrolling is clamped here rather than at the keypress: only now is the
+    // terminal height known, and without this `k` past the oldest row walks the
+    // window off the top and leaves a blank body under an honest "N shown".
+    let ceiling = rows(state).len().saturating_sub(body_height(h) as usize);
+    state.scroll = state.scroll.min(ceiling);
     let buf = compose(state, o, w, h);
     let theme = THEMES[state.theme];
-    let mut screen = String::with_capacity((w as usize) * (h as usize) * 4);
-    screen.push_str("\x1b[H");
-    screen.push_str(&export::to_ansi(&buf, &theme));
-    out.write_all(screen.as_bytes())?;
+    out.write_all(export::to_ansi_screen(&buf, &theme, 1).as_bytes())?;
     out.flush()
+}
+
+/// Rows of the body, newest last: one per event that clears the filter, plus a
+/// second for the ones carrying a note worth reading. `true` marks a note row.
+fn rows(state: &State) -> Vec<(&Event, bool)> {
+    let mut rows: Vec<(&Event, bool)> = Vec::new();
+    for event in state.events.iter().filter(|e| e.band >= state.floor) {
+        rows.push((event, false));
+        if state.notes
+            && event.band >= Band::Check
+            && event
+                .notes
+                .first()
+                .is_some_and(|n| n.severity >= pyxray_core::model::Severity::Caution)
+        {
+            rows.push((event, true));
+        }
+    }
+    rows
+}
+
+/// Rows the body has to draw into, given the whole terminal height. The header
+/// and its rule take the top, the status line the bottom.
+fn body_height(h: u16) -> u16 {
+    h.saturating_sub(3u16.min(h) + 2)
 }
 
 fn compose(state: &State, o: &Options, w: u16, h: u16) -> ratatui::buffer::Buffer {
@@ -234,29 +261,10 @@ fn compose(state: &State, o: &Options, w: u16, h: u16) -> ratatui::buffer::Buffe
     pyxray_render::canvas::hline(&mut buf, 0, head_h, w, theme.gl.h, theme.rule_style());
 
     let body_top = head_h + 1;
-    let body_h = h.saturating_sub(body_top + 1);
+    let body_h = body_height(h);
 
     // Build the rows newest-last, honouring the filter, then window them.
-    let visible: Vec<&Event> = state
-        .events
-        .iter()
-        .filter(|e| e.band >= state.floor)
-        .collect();
-
-    let mut rows: Vec<(&Event, bool)> = Vec::new();
-    for event in &visible {
-        rows.push((event, false));
-        if state.notes
-            && event.band >= Band::Check
-            && event
-                .notes
-                .first()
-                .is_some_and(|n| n.severity >= pyxray_core::model::Severity::Caution)
-        {
-            rows.push((event, true));
-        }
-    }
-
+    let rows = rows(state);
     let total = rows.len();
     let window = body_h as usize;
     let end = total.saturating_sub(state.scroll);
