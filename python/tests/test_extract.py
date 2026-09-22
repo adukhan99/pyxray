@@ -32,7 +32,7 @@ def test_every_shared_case_extracts_as_expected():
             for rel, body in (case.get("files") or {}).items():
                 path = Path(tmp) / rel
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(body, encoding="utf-8")
+                path.write_bytes(body.encode("utf-8"))
             if case.get("depth") == 0:
                 # Depth is not exposed through the Python API; the Rust test
                 # covers it.
@@ -44,7 +44,7 @@ def test_every_shared_case_extracts_as_expected():
 
 def test_paths_and_segments_come_back():
     with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / "s.py").write_text("print(1)\n", encoding="utf-8")
+        (Path(tmp) / "s.py").write_bytes(b"print(1)\n")
         found = pyxray.extract_all("cd . && python3 s.py --fast", cwd=tmp)
         assert len(found) == 1
         assert found[0]["path"] and found[0]["path"].endswith("s.py")

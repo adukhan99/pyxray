@@ -178,7 +178,7 @@ def test_shell_without_python_is_ignored(plugin: Any) -> None:
 
 
 def test_script_path_is_read_relative_to_cwd(plugin: Any, tmp_path: Path) -> None:
-    (tmp_path / "job.py").write_text("import subprocess\nsubprocess.run(['curl', 'x'])\n", encoding="utf-8")
+    (tmp_path / "job.py").write_bytes(b"import subprocess\nsubprocess.run(['curl', 'x'])\n")
     ctx = _register(plugin)
     _pre(ctx, "terminal", {"command": "python3 job.py", "cwd": str(tmp_path)})
     rows = pyxray.feed()

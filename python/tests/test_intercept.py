@@ -85,7 +85,7 @@ def test_draw_target_never_writes_into_a_pipe(monkeypatch=None):
 def test_source_for_reads_argv_like_python():
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / "s.py"
-        script.write_text("print('s')\n", encoding="utf-8")
+        script.write_bytes(b"print('s')\n")
         py = sys.executable
         assert intercept._source_for([py, "-X", "faulthandler", str(script)])[:2] == (
             "print('s')\n", "s.py")
@@ -100,7 +100,7 @@ def test_source_for_reads_argv_like_python():
 
 def test_payload_classification():
     with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / "run.py").write_text("import os\nos.remove('x')\n", encoding="utf-8")
+        (Path(tmp) / "run.py").write_bytes(b"import os\nos.remove('x')\n")
         found = intercept.python_in_payload({
             "tool_name": "Bash",
             "cwd": tmp,

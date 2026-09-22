@@ -82,7 +82,7 @@ def test_interceptor_gate_refuses_and_reports_why():
     env = {**os.environ, "PYXRAY_GATE": "10", "PYXRAY_WIDTH": "80",
            "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
     script = Path(__file__).parent / "_sample.py"
-    script.write_text("import shutil\nshutil.rmtree('/tmp/nope')\n")
+    script.write_bytes(b"import shutil\nshutil.rmtree('/tmp/nope')\n")
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "pyxray.intercept", "--", sys.executable, str(script)],
