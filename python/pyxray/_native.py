@@ -120,17 +120,16 @@ class _Binary(Engine):
         self._listing: dict[str, Any] | None = None
 
     def _run(self, args: list[str], source: str | None = None) -> str:
+        data = source.encode("utf-8") if source is not None else None
         proc = subprocess.run(
             [self._exe, *args],
-            input=source,
+            input=data,
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
         )
         if proc.returncode not in (0, 3):
-            raise EngineError(proc.stderr.strip() or f"pyx exited {proc.returncode}")
-        return proc.stdout
+            err = proc.stderr.decode("utf-8", errors="replace").strip()
+            raise EngineError(err or f"pyx exited {proc.returncode}")
+        return proc.stdout.decode("utf-8", errors="replace")
 
     def _list(self) -> dict[str, Any]:
         if self._listing is None:
